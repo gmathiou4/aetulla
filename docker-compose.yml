@@ -1,0 +1,174 @@
+# ~/ai-stack/docker-compose.yml
+# Full file. Changes vs previous: mem0 now mounts patched memory.py
+# and passes QDRANT_HOST/PORT/COLLECTION as env vars.
+
+services:
+
+  n8n:
+    image: n8nio/n8n:1.74.0
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=127.0.0.1
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - GENERIC_TIMEZONE=Europe/Prague
+      - TZ=Europe/Prague
+      - N8N_LOG_LEVEL=info
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_GIT_NODE_DISABLE_BARE_REPOS=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  ollama-keepalive:
+    image: curlimages/curl:8.10.1
+    container_name: ollama-keepalive
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          curl -sS -X POST http://host.docker.internal:11434/api/generate \
+            -H "Content-Type: application/json" \
+            -d '{"model":"qwen2.5:14b-instruct","prompt":"ok","keep_alive":"24h","stream":false}' \
+            > /dev/null \
+            && echo "$$(date -Iseconds)] warmed qwen2.5:14b-instruct" \
+            || echo "$$(date -Iseconds)] WARN: keepalive failed";
+          sleep 1200;
+        done
+
+  searxng-redis:
+    image: redis:7-alpine
+    container_name: searxng-redis
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no
+
+  searxng:
+    image: searxng/searxng@sha256:201c62d470abf1b3ccad42562b6a8310267fbb022962d8bd410c4b011ec4516e
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+      - TZ=Europe/Prague
+    depends_on:
+      - searxng-redis
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.58.0-noble
+    container_name: playwright
+    restart: unless-stopped
+    command: /bin/sh -c "npx -y playwright@1.58.0 run-server --port 3000 --host 0.0.0.0"
+    environment:
+      - TZ=Europe/Prague
+
+  web-extractor:
+    build:
+      context: ./web-extractor
+      dockerfile: Dockerfile
+    container_name: web-extractor
+    restart: unless-stopped
+    environment:
+      - PLAYWRIGHT_WS=ws://playwright:3000/
+      - PAGE_TIMEOUT_MS=30000
+      - CONCURRENCY=3
+      - TZ=Europe/Prague
+    depends_on:
+      - playwright
+
+  # ─────────────────────────────────────────────────────────────
+  # Qdrant vector store — named mem0_store to satisfy OpenMemory's
+  # hardcoded default (also overridable now via QDRANT_HOST env var
+  # on mem0, thanks to memory.py.patched)
+  # ─────────────────────────────────────────────────────────────
+  mem0_store:
+    image: qdrant/qdrant:v1.12.4
+    container_name: mem0_store
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - TZ=Europe/Prague
+
+  # ─────────────────────────────────────────────────────────────
+  # Mem0 / OpenMemory — patched memory.py mounted over the
+  # buggy file. Env vars now actually control the vector store.
+  # ─────────────────────────────────────────────────────────────
+  mem0:
+    build:
+      context: .
+      dockerfile: Dockerfile.mem0
+    image: mem0-patched:local
+    container_name: mem0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8765:8765"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - OPENAI_API_KEY=ollama-dummy
+      - OPENAI_BASE_URL=http://host.docker.internal:11434/v1
+      - QDRANT_HOST=mem0_store
+      - QDRANT_PORT=6333
+      - QDRANT_COLLECTION=openmemory_yorgos
+      - USER=yorgos
+      - TZ=Europe/Prague
+    depends_on:
+      - mem0_store
+      - ollama-keepalive
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.9.5
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - WEBUI_AUTH=true
+      - ENABLE_SIGNUP=false
+      - DEFAULT_LOCALE=en
+      - TZ=Europe/Prague
+      - ENABLE_RAG_WEB_SEARCH=true
+      - RAG_WEB_SEARCH_ENGINE=searxng
+      - SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json
+      - RAG_WEB_SEARCH_RESULT_COUNT=5
+      - RAG_WEB_SEARCH_CONCURRENT_REQUESTS=3
+      - MEM0_BASE_URL=http://mem0:8765
+      - MEM0_USER_ID=yorgos
+    volumes:
+      - open-webui_data:/app/backend/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - ollama-keepalive
+      - searxng
+      - playwright
+      - web-extractor
+      - mem0
+
+volumes:
+  n8n_data:
+  open-webui_data:
+  qdrant_data:

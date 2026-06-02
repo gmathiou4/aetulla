@@ -1,0 +1,2 @@
+FROM mem0/openmemory-mcp:latest
+COPY memory.py.patched /usr/src/openmemory/app/utils/memory.py
