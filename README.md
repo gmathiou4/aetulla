@@ -74,11 +74,11 @@ first, neither has any).
    ```bash
    bash scripts/test-mem0.sh
    ```
-   Pushes LLM/embedder config, writes an inferred memory, reads it back,
-   confirms the Qdrant collection exists. The write and the Qdrant-collections
-   steps should succeed cleanly; the "reading memories back" step currently
-   returns `Internal Server Error` — see Troubleshooting below, this is a
-   known upstream bug, not a sign your install is broken.
+   Pushes LLM/embedder config, writes an inferred memory, reads it back via
+   `POST /api/v1/memories/filter`, confirms the Qdrant collection exists.
+   Expect no errors in any step. (The script deliberately uses `/filter`
+   instead of `GET /api/v1/memories/` to read memories back — see
+   Troubleshooting below for why.)
 
 5. **Enable memory in Open WebUI:** create/import a model with the Mem0
    filter function attached (`Workspace → Functions → Mem0 Memory`, toggle
@@ -153,14 +153,23 @@ engine.
 settings are DB-authoritative (`webui.db`) once configured via the UI — env
 vars only seed first-boot defaults, they don't override an existing DB value.
 
-**`GET /api/v1/memories/?user_id=...` (the "reading memories back" step in
-`scripts/test-mem0.sh`) returns `Internal Server Error`.** This is a known bug
-in the upstream `mem0/openmemory-mcp` image itself (`routers/memories.py`'s
-`list_memories`), not something this Kit's patches touch or introduce:
-the endpoint outer-joins `App`/`Category` for filtering but never maps the
-join results onto the `app_name`/`categories` fields the `MemoryResponse`
-schema expects, so Pydantic serialization fails on every call. Writes
-(`POST /api/v1/memories/`) and Qdrant reads are unaffected — memory storage
-and the Open WebUI chat filter's recall path both work. Only this specific
-list/pagination endpoint is broken. No workaround shipped in this Kit yet;
-tracked as a known limitation.
+**`GET /api/v1/memories/?user_id=...` returns `Internal Server Error`.** This
+is a known bug in the upstream `mem0/openmemory-mcp` image itself
+(`routers/memories.py`'s `list_memories`), not something this Kit's patches
+touch or introduce: the endpoint outer-joins `App`/`Category` for filtering
+but never maps the join results onto the `app_name`/`categories` fields the
+`MemoryResponse` schema expects, so Pydantic serialization fails on every
+call. Writes (`POST /api/v1/memories/`) and Qdrant reads are unaffected —
+memory storage and the Open WebUI chat filter's recall path both work; only
+this specific list/pagination endpoint is broken.
+
+**Workaround:** use `POST /api/v1/memories/filter` instead — it builds each
+`MemoryResponse` manually via an explicit transformer (mapping `app_name`/
+`categories` as strings itself) rather than relying on the same broken
+auto-serialization, so it doesn't hit the bug:
+```bash
+curl -sS -X POST http://localhost:8765/api/v1/memories/filter \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"yorgos","page":1,"size":20}'
+```
+`scripts/test-mem0.sh` already uses this endpoint for its read-back step.
