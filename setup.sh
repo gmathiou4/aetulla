@@ -63,13 +63,49 @@ if [[ -f .env ]]; then
 fi
 cp .env.example .env
 N8N_KEY=$(openssl rand -hex 32)
-sed -i \
-    -e "s#^OLLAMA_BASE_URL=.*#OLLAMA_BASE_URL=${OLLAMA_BASE_URL}#" \
-    -e "s#^MEM0_USER_ID=.*#MEM0_USER_ID=${MEM0_USER_ID}#" \
-    -e "s#^TZ=.*#TZ=${TZ_VALUE}#" \
-    -e "s#^N8N_ENCRYPTION_KEY=.*#N8N_ENCRYPTION_KEY=${N8N_KEY}#" \
-    .env
+# Values are passed via the environment, never string-interpolated into the
+# Python source, and matched by plain prefix (no regex, no sed delimiter) —
+# a username/timezone containing '#', '/', or any other sed/regex
+# metacharacter can't corrupt the substitution or break the script.
+OLLAMA_BASE_URL="$OLLAMA_BASE_URL" MEM0_USER_ID="$MEM0_USER_ID" TZ_VALUE="$TZ_VALUE" N8N_KEY="$N8N_KEY" python3 <<'PYEOF'
+import os
+
+replacements = {
+    "OLLAMA_BASE_URL": os.environ["OLLAMA_BASE_URL"],
+    "MEM0_USER_ID": os.environ["MEM0_USER_ID"],
+    "TZ": os.environ["TZ_VALUE"],
+    "N8N_ENCRYPTION_KEY": os.environ["N8N_KEY"],
+}
+
+with open(".env") as f:
+    lines = f.readlines()
+
+out = []
+for line in lines:
+    stripped = line.rstrip("\n")
+    matched = False
+    for key, value in replacements.items():
+        if stripped.startswith(f"{key}="):
+            out.append(f"{key}={value}\n")
+            matched = True
+            break
+    if not matched:
+        out.append(line)
+
+with open(".env", "w") as f:
+    f.writelines(out)
+PYEOF
 ok ".env written"
+
+# Load the resolved .env values into this shell so every later reference to
+# ${QDRANT_COLLECTION:-...}/${EMBED_MODEL:-...}/etc. reflects what's actually
+# configured instead of always silently falling back to the hardcoded
+# default (which is exactly what was happening before — none of these were
+# ever sourced from .env, so a customized .env had no effect on this script).
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
 
 echo ""
 echo "=== [3/6] Pulling models ==="
@@ -107,9 +143,16 @@ done
 
 # seed OpenMemory user via one inferred write (also primes the smoke test data)
 SEED_TEXT="Setup smoke-test fact: this user's memory namespace is ${MEM0_USER_ID}."
+# JSON built via python3's json.dumps, not manual string interpolation —
+# a username containing '"', '\', or other JSON-significant characters
+# can't corrupt the request body.
+SEED_PAYLOAD=$(MEM0_USER_ID="$MEM0_USER_ID" SEED_TEXT="$SEED_TEXT" python3 -c '
+import json, os
+print(json.dumps({"user_id": os.environ["MEM0_USER_ID"], "text": os.environ["SEED_TEXT"], "infer": True}))
+')
 if curl -sS --max-time 90 -X POST "http://localhost:${MEM0_PORT:-8765}/api/v1/memories/" \
     -H "Content-Type: application/json" \
-    -d "{\"user_id\":\"${MEM0_USER_ID}\",\"text\":\"${SEED_TEXT}\",\"infer\":true}" > /tmp/seed_write.json 2>&1; then
+    -d "$SEED_PAYLOAD" > /tmp/seed_write.json 2>&1; then
     ok "OpenMemory user seeded via inferred write"
 else
     fail "OpenMemory seed write failed — see /tmp/seed_write.json"
@@ -123,9 +166,18 @@ fi
 # host; docker cp + docker exec works identically on every backend.
 docker cp installer/seed_openwebui.py open-webui:/tmp/seed_openwebui.py
 docker cp installer/fixtures open-webui:/tmp/fixtures
+# Pass the resolved config through as the seeded Filter's Valve overrides
+# (see seed_openwebui.py) — without this, the wizard's namespace question
+# and any .env customization of QDRANT_COLLECTION/EMBED_MODEL would have no
+# effect on the actual chat-time recall/store path, only on this script's
+# own self-test below.
 if docker exec open-webui python3 /tmp/seed_openwebui.py \
     --db /app/backend/data/webui.db \
-    --llm-model "${LLM_MODEL:-qwen2.5:14b-instruct}"; then
+    --llm-model "${LLM_MODEL:-qwen2.5:14b-instruct}" \
+    --mem0-user-id "${MEM0_USER_ID}" \
+    --qdrant-collection "${QDRANT_COLLECTION:-openmemory_yorgos}" \
+    --embed-model "${EMBED_MODEL:-nomic-embed-text}" \
+    --ollama-url "${OLLAMA_BASE_URL}"; then
     ok "Open WebUI model + Mem0 filter function seeded (active)"
 else
     fail "Open WebUI seeding failed"
@@ -148,10 +200,14 @@ sleep 3  # let the inferred write from step 5 finish embedding
 # bug (500 on every call — see README Troubleshooting). POST /filter builds
 # MemoryResponse objects manually and does not hit it; same fix as
 # scripts/test-mem0.sh.
+RECALL_PAYLOAD=$(MEM0_USER_ID="$MEM0_USER_ID" python3 -c '
+import json, os
+print(json.dumps({"user_id": os.environ["MEM0_USER_ID"], "page": 1, "size": 5}))
+')
 RECALL=$(curl -s -X POST "http://localhost:${MEM0_PORT:-8765}/api/v1/memories/filter" \
     -H "Content-Type: application/json" \
-    -d "{\"user_id\":\"${MEM0_USER_ID}\",\"page\":1,\"size\":5}")
-if echo "$RECALL" | grep -q "${MEM0_USER_ID}"; then
+    -d "$RECALL_PAYLOAD" || echo "ERR")
+if echo "$RECALL" | grep -qF -- "${MEM0_USER_ID}"; then
     ok "End-to-end recall check passed"
 else
     fail "Recall check found no memories for ${MEM0_USER_ID}"
