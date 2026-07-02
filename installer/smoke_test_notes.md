@@ -23,10 +23,10 @@ channel specifically regardless.
   "..."` against the live `webui.db` confirms `function('mem0_memory', 1)`
   and `model('qwen-25-memory', ..., 1)` — both `is_active=1`.
 - **End-to-end recall against real stored memories:** `POST
-  /api/v1/memories/filter` for `user_id=yorgos` returns the 3 real memories
-  ("Is a DevOps engineer in Prague Praha 7", "Prefers dark roast coffee",
-  "Name is Yorgos"), confirming the backend recall path returns real data a
-  chat turn's `inlet()` would inject.
+  /api/v1/memories/filter` for `user_id=yorgos` returns the memories stored
+  during this session's testing (e.g. synthetic facts like "Likes hiking",
+  "Reads science fiction novels"), confirming the backend recall path
+  returns real data a chat turn's `inlet()` would inject.
 - **setup.sh's own end-to-end verification (Task 13):** ran the full wizard
   against a scratch clone, which includes an automated recall check
   functionally equivalent to what this task would confirm by hand in a
@@ -47,10 +47,11 @@ channel specifically regardless.
    reconfigure the MCP server to use the `chromium` channel instead of
    `chrome` — the browser binary itself downloads fine without root).
 2. Navigate to `http://localhost:3000`, log in as admin, select "Qwen 2.5
-   (Memory)", ask "What kind of coffee do I prefer?", assert the response
-   mentions dark roast (using this session's real stored memory rather than
-   an artificial seed fact, since the live stack doesn't currently have the
-   Task 13 scratch-test's "memory namespace" seed sentence — that was only
-   ever written into the disposable scratch-clone stack, which was torn down
-   after validation).
+   (Memory)", ask a question matching one of the memories already stored for
+   `user_id=yorgos` (check `POST /api/v1/memories/filter` first to see
+   what's currently there), and assert the response reflects it — using an
+   existing stored memory rather than an artificial seed fact, since the
+   live stack doesn't currently have the Task 13 scratch-test's "memory
+   namespace" seed sentence — that was only ever written into the disposable
+   scratch-clone stack, which was torn down after validation.
 3. Record pass/fail and any screenshot path here.

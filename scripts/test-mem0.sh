@@ -14,7 +14,7 @@ echo; echo
 echo "=== Writing test memory (may take 20-40s for qwen extraction) ==="
 curl -sS --max-time 90 -X POST http://localhost:8765/api/v1/memories/ \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"yorgos","text":"I am Yorgos, DevOps engineer in Prague Praha 7. Stack: SAP HANA, Kafka, Redis on Docker Compose. I prefer brutally honest no-filler responses.","infer":true,"app":"openwebui"}'
+  -d '{"user_id":"yorgos","text":"Test user likes hiking and reads science fiction novels.","infer":true,"app":"openwebui"}'
 echo; echo
 
 echo "=== Reading memories back ==="
