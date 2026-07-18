@@ -1,13 +1,29 @@
 # Task 14 — Playwright UI smoke test notes
 
-**Status: BLOCKED, not executed.** The Playwright MCP browser tool is hardcoded
-to the `chrome` channel (not bundled Chromium) and requires Google Chrome
-installed at `/opt/google/chrome/chrome`. Installing it
-(`npx playwright install chrome --with-deps`) requires root
-(`apt-get install google-chrome-stable`), and this environment has no
-passwordless sudo — the install cannot be completed non-interactively.
+**Status: PASSED on macOS (M1, Docker Desktop).** Completed via a browser
+automation tool (Chrome extension bridge) after the originally-planned
+Playwright MCP tool hit a *different* blocker on this machine (its own
+extension-bridge mode never connected — not the WSL2 chrome-binary/root
+issue, since Chrome was already installed here). Steps: created the first
+admin account via `POST /api/v1/auths/signup` (same "first account = admin"
+flow a real user follows), logged in through the actual sign-in page,
+selected "Qwen 2.5 (Memory)" from the model picker, and asked "What is my
+memory namespace?" in a live chat turn. Response: **"Your memory namespace
+is default_user."** — correct, matching the one memory seeded by `setup.sh`.
+Screenshot saved locally at
+`/var/folders/_c/qxw68kl56hb9p09_fhsr5c000000gn/T/claude-chrome-screenshots-j8ISeK/screenshot-1784406770700-0.jpg`
+(not committed — machine-local temp path).
+
+## Original WSL2 blocker (for history — did not reproduce here)
+
+The Playwright MCP browser tool was hardcoded to the `chrome` channel (not
+bundled Chromium) and required Google Chrome installed at
+`/opt/google/chrome/chrome`. Installing it
+(`npx playwright install chrome --with-deps`) required root
+(`apt-get install google-chrome-stable`), and that environment had no
+passwordless sudo — the install could not be completed non-interactively.
 Installing plain Chromium (`npx playwright install chromium`, no root needed)
-succeeded but the MCP tool does not fall back to it; it errors on the `chrome`
+succeeded but the MCP tool did not fall back to it; it errored on the `chrome`
 channel specifically regardless.
 
 ## What was independently verified instead (this session, via direct
@@ -32,26 +48,21 @@ channel specifically regardless.
   functionally equivalent to what this task would confirm by hand in a
   browser (seed write → wait → recall → assert content present).
 
-## What is NOT verified by the above (the actual UI-level gap)
+## What is now verified (previously the UI-level gap, closed on macOS)
 
-- That Open WebUI's frontend correctly renders the model picker with the
-  seeded "Qwen 2.5 (Memory)" model selectable.
-- That a live chat turn through the actual browser UI (not a direct API
-  call) triggers the filter's `inlet()`/`outlet()` hooks and the model's
-  response visibly reflects injected memory content.
-- Login flow / admin session behavior in the browser.
+- Open WebUI's frontend correctly renders the model picker with the seeded
+  "Qwen 2.5 (Memory)" model selectable — confirmed visually.
+- A live chat turn through the actual browser UI (not a direct API call)
+  triggers the filter's `inlet()`/`outlet()` hooks and the model's response
+  visibly reflects injected memory content — confirmed, response text
+  quoted above.
+- Login flow / admin session behavior in the browser — confirmed (signup →
+  sign-in page → logged-in session persisted through the chat turn).
 
-## To complete this task later
+## Still open
 
-1. Fix the Playwright MCP browser (either install Chrome as root, or
-   reconfigure the MCP server to use the `chromium` channel instead of
-   `chrome` — the browser binary itself downloads fine without root).
-2. Navigate to `http://localhost:3000`, log in as admin, select "Qwen 2.5
-   (Memory)", ask a question matching one of the memories already stored for
-   `user_id=default_user` (check `POST /api/v1/memories/filter` first to see
-   what's currently there), and assert the response reflects it — using an
-   existing stored memory rather than an artificial seed fact, since the
-   live stack doesn't currently have the Task 13 scratch-test's "memory
-   namespace" seed sentence — that was only ever written into the disposable
-   scratch-clone stack, which was torn down after validation.
-3. Record pass/fail and any screenshot path here.
+- Not re-verified against the Playwright MCP tool specifically, only a
+  Chrome-extension-based browser automation tool — if the Playwright MCP's
+  extension-bridge mode gets connected later, worth a quick re-run to
+  confirm parity, but not blocking since the underlying product behavior
+  (not the test tooling) is what actually matters here.
