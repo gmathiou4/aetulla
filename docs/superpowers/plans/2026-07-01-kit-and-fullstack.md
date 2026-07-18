@@ -771,7 +771,7 @@ docker logs -f mem0 &
 LOGPID=$!
 curl -sS --max-time 90 -X POST http://localhost:8765/api/v1/memories/ \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"yorgos","text":"Testing categorization patch: user prefers dark roast coffee.","infer":true}'
+  -d '{"user_id":"default_user","text":"Testing categorization patch: user prefers dark roast coffee.","infer":true}'
 sleep 5
 kill $LOGPID
 docker logs mem0 --since 2m | grep -iE "categoriz|Completions|gpt-4o|AttributeError|Traceback"
@@ -1028,13 +1028,13 @@ services:
       - EMBED_DIMS=${EMBED_DIMS:-768}
       - QDRANT_HOST=mem0_store
       - QDRANT_PORT=6333
-      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-openmemory_yorgos}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-openmemory_default}
       # 4 slashes = absolute /data path. A 3-slash relative path or a direct
       # file bind-mount both break under WSL2/Docker-Desktop at the runc
       # level — this must stay a named volume on a directory, never a
       # single-file bind mount.
       - DATABASE_URL=sqlite:////data/openmemory.db
-      - USER=${MEM0_USER_ID:-yorgos}
+      - USER=${MEM0_USER_ID:-default_user}
       - TZ=${TZ:-Europe/Prague}
     volumes:
       - mem0_data:/data
@@ -1064,7 +1064,7 @@ services:
       - RAG_WEB_SEARCH_RESULT_COUNT=5
       - RAG_WEB_SEARCH_CONCURRENT_REQUESTS=3
       - MEM0_BASE_URL=http://mem0:8765
-      - MEM0_USER_ID=${MEM0_USER_ID:-yorgos}
+      - MEM0_USER_ID=${MEM0_USER_ID:-default_user}
     volumes:
       - open-webui_data:/app/backend/data
     extra_hosts:
@@ -1141,11 +1141,11 @@ EMBED_DIMS=768
 # setups: leave as-is. Multi-user: OpenMemory does NOT auto-create users on
 # REST write (404s "User not found") — seed each user explicitly, see README
 # "first-run checklist".
-MEM0_USER_ID=yorgos
+MEM0_USER_ID=default_user
 
 # Qdrant collection name. Renaming this creates a fresh (empty) collection —
 # it does not migrate existing vectors.
-QDRANT_COLLECTION=openmemory_yorgos
+QDRANT_COLLECTION=openmemory_default
 
 # Dummy value satisfies the OpenAI SDK client's required-field check inside
 # mem0's categorization module; Ollama needs no real key. Do not put a real
@@ -1277,14 +1277,14 @@ first, neither has any).
 
 3. **Verify the Qdrant collection came up at the right dimensionality:**
    ```bash
-   curl -s http://127.0.0.1:6333/collections/${QDRANT_COLLECTION:-openmemory_yorgos} | python3 -m json.tool | grep -A2 '"vectors"'
+   curl -s http://127.0.0.1:6333/collections/${QDRANT_COLLECTION:-openmemory_default} | python3 -m json.tool | grep -A2 '"vectors"'
    ```
    Expect `"size": 768` (or whatever `EMBED_DIMS` you set). If it shows the
    wrong size, your embedder model changed after the collection already
    existed — mem0 does not re-dimension an existing collection. Delete it and
    let the next write recreate it:
    ```bash
-   curl -s -X DELETE http://127.0.0.1:6333/collections/${QDRANT_COLLECTION:-openmemory_yorgos}
+   curl -s -X DELETE http://127.0.0.1:6333/collections/${QDRANT_COLLECTION:-openmemory_default}
    ```
 
 4. **End-to-end smoke test:**
@@ -1773,8 +1773,8 @@ echo "=== ai-stack setup ==="
 echo ""
 
 # ── Question 1/3: user id ───────────────────────────────────────────────
-read -r -p "Memory namespace / username [yorgos]: " MEM0_USER_ID
-MEM0_USER_ID="${MEM0_USER_ID:-yorgos}"
+read -r -p "Memory namespace / username [default_user]: " MEM0_USER_ID
+MEM0_USER_ID="${MEM0_USER_ID:-default_user}"
 
 # ── Question 2/3: timezone ──────────────────────────────────────────────
 DEFAULT_TZ=$(cat /etc/timezone 2>/dev/null || echo "Europe/Prague")
@@ -1854,7 +1854,7 @@ fi
 
 echo ""
 echo "=== [6/6] Verifying 768-dim collection + end-to-end recall ==="
-COLLECTION="${QDRANT_COLLECTION:-openmemory_yorgos}"
+COLLECTION="${QDRANT_COLLECTION:-openmemory_default}"
 DIMS=$(curl -s "http://localhost:${QDRANT_HTTP_PORT:-6333}/collections/${COLLECTION}" | python3 -c "import json,sys; print(json.load(sys.stdin)['result']['config']['params']['vectors']['size'])" 2>/dev/null || echo "ERR")
 if [[ "$DIMS" == "${EMBED_DIMS:-768}" ]]; then
     ok "Qdrant collection '${COLLECTION}' at ${DIMS} dims"

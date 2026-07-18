@@ -23,7 +23,7 @@ channel specifically regardless.
   "..."` against the live `webui.db` confirms `function('mem0_memory', 1)`
   and `model('qwen-25-memory', ..., 1)` — both `is_active=1`.
 - **End-to-end recall against real stored memories:** `POST
-  /api/v1/memories/filter` for `user_id=yorgos` returns the memories stored
+  /api/v1/memories/filter` for `user_id=default_user` returns the memories stored
   during this session's testing (e.g. synthetic facts like "Likes hiking",
   "Reads science fiction novels"), confirming the backend recall path
   returns real data a chat turn's `inlet()` would inject.
@@ -48,7 +48,7 @@ channel specifically regardless.
    `chrome` — the browser binary itself downloads fine without root).
 2. Navigate to `http://localhost:3000`, log in as admin, select "Qwen 2.5
    (Memory)", ask a question matching one of the memories already stored for
-   `user_id=yorgos` (check `POST /api/v1/memories/filter` first to see
+   `user_id=default_user` (check `POST /api/v1/memories/filter` first to see
    what's currently there), and assert the response reflects it — using an
    existing stored memory rather than an artificial seed fact, since the
    live stack doesn't currently have the Task 13 scratch-test's "memory

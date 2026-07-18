@@ -80,7 +80,7 @@ files at build time** (not runtime-mounted):
 
 Other things to remember:
 
-- Vector store collection: `openmemory_yorgos` in Qdrant at `mem0_store:6333`,
+- Vector store collection: `openmemory_default` in Qdrant at `mem0_store:6333`,
   born at whatever `EMBED_DIMS` was set to on first write. Mem0 does **not**
   re-dimension an existing collection — if it's wrong, delete the (empty)
   collection and let the next write recreate it.
