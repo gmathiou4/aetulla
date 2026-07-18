@@ -1,3 +1,5 @@
+<img src="assets/logo.svg" alt="ai-stack logo" width="96" />
+
 # ai-stack
 
 Local, fully-offline AI stack: Open WebUI + Mem0/OpenMemory (long-term memory)
