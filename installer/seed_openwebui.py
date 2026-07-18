@@ -84,8 +84,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", required=True, help="Path to webui.db")
     parser.add_argument("--llm-model", required=True, help="Chat model id to bind (e.g. qwen2.5:14b-instruct)")
-    parser.add_argument("--mem0-user-id", default="yorgos", help="OpenMemory user_id namespace (must match mem0's MEM0_USER_ID)")
-    parser.add_argument("--qdrant-collection", default="openmemory_yorgos", help="Qdrant collection (must match mem0's QDRANT_COLLECTION)")
+    parser.add_argument("--mem0-user-id", default="default_user", help="OpenMemory user_id namespace (must match mem0's MEM0_USER_ID)")
+    parser.add_argument("--qdrant-collection", default="openmemory_default", help="Qdrant collection (must match mem0's QDRANT_COLLECTION)")
     parser.add_argument("--embed-model", default="nomic-embed-text", help="Embedding model (must match mem0's EMBED_MODEL)")
     parser.add_argument("--ollama-url", default="http://host.docker.internal:11434", help="Ollama base URL reachable from inside open-webui (must match OLLAMA_BASE_URL)")
     args = parser.parse_args()
@@ -102,7 +102,7 @@ def main():
         # Overrides the Filter's Pydantic Valves() class defaults at runtime
         # (Open WebUI does `Valves(**valves_db)` — see utils/filter.py) so the
         # actually-running filter reflects the resolved .env config, not the
-        # fixture's hardcoded "yorgos"/"openmemory_yorgos"/"host.docker.internal"
+        # fixture's hardcoded "default_user"/"openmemory_default"/"host.docker.internal"
         # source-code defaults. Without this, changing MEM0_USER_ID/
         # QDRANT_COLLECTION/EMBED_MODEL/OLLAMA_BASE_URL in .env has no effect
         # on the chat-time recall/store path — only on mem0's own config and

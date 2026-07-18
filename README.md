@@ -60,14 +60,14 @@ first, neither has any).
 
 3. **Verify the Qdrant collection came up at the right dimensionality:**
    ```bash
-   curl -s http://127.0.0.1:6333/collections/${QDRANT_COLLECTION:-openmemory_yorgos} | python3 -m json.tool | grep -A2 '"vectors"'
+   curl -s http://127.0.0.1:6333/collections/${QDRANT_COLLECTION:-openmemory_default} | python3 -m json.tool | grep -A2 '"vectors"'
    ```
    Expect `"size": 768` (or whatever `EMBED_DIMS` you set). If it shows the
    wrong size, your embedder model changed after the collection already
    existed — mem0 does not re-dimension an existing collection. Delete it and
    let the next write recreate it:
    ```bash
-   curl -s -X DELETE http://127.0.0.1:6333/collections/${QDRANT_COLLECTION:-openmemory_yorgos}
+   curl -s -X DELETE http://127.0.0.1:6333/collections/${QDRANT_COLLECTION:-openmemory_default}
    ```
 
 4. **End-to-end smoke test:**
@@ -170,6 +170,6 @@ auto-serialization, so it doesn't hit the bug:
 ```bash
 curl -sS -X POST http://localhost:8765/api/v1/memories/filter \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"yorgos","page":1,"size":20}'
+  -d '{"user_id":"default_user","page":1,"size":20}'
 ```
 `scripts/test-mem0.sh` already uses this endpoint for its read-back step.

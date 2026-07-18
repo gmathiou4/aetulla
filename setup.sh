@@ -26,7 +26,7 @@ echo ""
 # would kill the script before printing anything useful.
 if [[ -t 0 ]]; then
     # ── Question 1/3: user id ───────────────────────────────────────────
-    read -r -p "Memory namespace / username [yorgos]: " MEM0_USER_ID
+    read -r -p "Memory namespace / username [default_user]: " MEM0_USER_ID
 
     # ── Question 2/3: timezone ──────────────────────────────────────────
     DEFAULT_TZ=$(cat /etc/timezone 2>/dev/null || echo "Europe/Prague")
@@ -42,7 +42,7 @@ else
     PULL_OPT_REPLY=""
 fi
 
-MEM0_USER_ID="${MEM0_USER_ID:-yorgos}"
+MEM0_USER_ID="${MEM0_USER_ID:-default_user}"
 TZ_VALUE="${TZ_INPUT:-$DEFAULT_TZ}"
 if [[ "$PULL_OPT_REPLY" =~ ^[Yy]$ ]]; then
     export PULL_OPTIONAL=all
@@ -175,7 +175,7 @@ if docker exec open-webui python3 /tmp/seed_openwebui.py \
     --db /app/backend/data/webui.db \
     --llm-model "${LLM_MODEL:-qwen2.5:14b-instruct}" \
     --mem0-user-id "${MEM0_USER_ID}" \
-    --qdrant-collection "${QDRANT_COLLECTION:-openmemory_yorgos}" \
+    --qdrant-collection "${QDRANT_COLLECTION:-openmemory_default}" \
     --embed-model "${EMBED_MODEL:-nomic-embed-text}" \
     --ollama-url "${OLLAMA_BASE_URL}"; then
     ok "Open WebUI model + Mem0 filter function seeded (active)"
@@ -186,7 +186,7 @@ fi
 
 echo ""
 echo "=== [6/6] Verifying 768-dim collection + end-to-end recall ==="
-COLLECTION="${QDRANT_COLLECTION:-openmemory_yorgos}"
+COLLECTION="${QDRANT_COLLECTION:-openmemory_default}"
 DIMS=$(curl -s "http://localhost:${QDRANT_HTTP_PORT:-6333}/collections/${COLLECTION}" | python3 -c "import json,sys; print(json.load(sys.stdin)['result']['config']['params']['vectors']['size'])" 2>/dev/null || echo "ERR")
 if [[ "$DIMS" == "${EMBED_DIMS:-768}" ]]; then
     ok "Qdrant collection '${COLLECTION}' at ${DIMS} dims"
