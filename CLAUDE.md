@@ -10,7 +10,7 @@ in this file.
 
 ## Who you're working with
 
-Yorgos. DevOps/SRE at SAP, Prague. WSL2 Ubuntu 24.04 on Windows 11.
+DevOps/SRE engineer, Central Europe timezone. WSL2 Ubuntu 24.04 on Windows 11.
 Greek speaker. Personal PC: Ryzen 9800X3D + RTX 5070 + 32GB DDR5.
 
 ## How to respond — non-negotiable
