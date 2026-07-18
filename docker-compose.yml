@@ -161,19 +161,26 @@ services:
       - EMBED_DIMS=${EMBED_DIMS:-768}
       - QDRANT_HOST=mem0_store
       - QDRANT_PORT=6333
-      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-openmemory_yorgos}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-openmemory_default}
       # 4 slashes = absolute /data path. A 3-slash relative path or a direct
       # file bind-mount both break under WSL2/Docker-Desktop at the runc
       # level — this must stay a named volume on a directory, never a
       # single-file bind mount.
       - DATABASE_URL=sqlite:////data/openmemory.db
-      - USER=${MEM0_USER_ID:-yorgos}
+      - USER=${MEM0_USER_ID:-default_user}
       - TZ=${TZ:-Europe/Prague}
     volumes:
       - mem0_data:/data
     depends_on:
       - mem0_store
       - ollama-keepalive
+    # No curl/wget in the base image — use Python's stdlib instead.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8765/docs', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:v0.9.6
@@ -197,7 +204,7 @@ services:
       - RAG_WEB_SEARCH_RESULT_COUNT=5
       - RAG_WEB_SEARCH_CONCURRENT_REQUESTS=3
       - MEM0_BASE_URL=http://mem0:8765
-      - MEM0_USER_ID=${MEM0_USER_ID:-yorgos}
+      - MEM0_USER_ID=${MEM0_USER_ID:-default_user}
     volumes:
       - open-webui_data:/app/backend/data
     extra_hosts:
