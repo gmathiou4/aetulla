@@ -13,6 +13,11 @@ not containerized.
 - [Ollama](https://ollama.com) installed natively on the host (WSL2, Linux, or macOS)
 - NVIDIA GPU + drivers strongly recommended for the 14B chat model; CPU-only works but is slow
 - ~10GB disk for models, ~2GB for containers/volumes
+- **≥16GB RAM recommended.** On an 8GB Mac, `qwen2.5:14b-instruct` competing
+  with Docker Desktop's own VM (default 4GB) causes heavy swapping and can
+  hang mem0's inferred writes indefinitely. If you're on 8GB: use a smaller
+  `LLM_MODEL` (e.g. `qwen2.5:3b-instruct`) and lower Docker Desktop's memory
+  allocation (Settings → Resources → Memory, ~2GB) before first boot.
 
 Pull the required models before first boot:
 
