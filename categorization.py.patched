@@ -1,0 +1,77 @@
+"""
+Category extraction for OpenMemory memories.
+
+Patched: originally hardcoded OpenAI's gpt-4o-mini via a bare OpenAI() client
+(no base_url override), which throws against OPENAI_API_KEY=ollama-dummy on
+every inferred write (non-fatal, but noisy). This patch points the OpenAI SDK
+client at Ollama's OpenAI-compatible endpoint and reads the model from
+LLM_MODEL, matching the memory.py/config.py patches so one env var controls
+the chat model everywhere.
+"""
+
+import logging
+import os
+from typing import List
+
+from dotenv import load_dotenv
+from openai import OpenAI
+from pydantic import BaseModel
+from tenacity import retry, stop_after_attempt, wait_exponential
+from app.utils.prompts import MEMORY_CATEGORIZATION_PROMPT
+
+load_dotenv()
+
+_ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+openai_client = OpenAI(
+    base_url=f"{_ollama_base_url.rstrip('/')}/v1",
+    api_key=os.environ.get("OPENAI_API_KEY", "ollama-dummy"),
+)
+_categorization_model = os.environ.get("LLM_MODEL", "qwen2.5:14b-instruct")
+
+_JSON_INSTRUCTION = (
+    "\n\nRespond with a single JSON object of the form "
+    '{"categories": ["category1", "category2"]} and nothing else.'
+)
+
+
+class MemoryCategories(BaseModel):
+    categories: List[str]
+
+
+def _strip_code_fence(raw: str) -> str:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.lower().startswith("json"):
+            raw = raw[4:]
+    return raw.strip()
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=15))
+def get_categories_for_memory(memory: str) -> List[str]:
+    completion = None
+    try:
+        messages = [
+            {"role": "system", "content": MEMORY_CATEGORIZATION_PROMPT + _JSON_INSTRUCTION},
+            {"role": "user", "content": memory},
+        ]
+
+        completion = openai_client.chat.completions.create(
+            model=_categorization_model,
+            messages=messages,
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+
+        raw = completion.choices[0].message.content
+        parsed = MemoryCategories.model_validate_json(_strip_code_fence(raw))
+        return [cat.strip().lower() for cat in parsed.categories]
+
+    except Exception as e:
+        logging.error(f"[ERROR] Failed to get categories: {e}")
+        if completion is not None:
+            try:
+                logging.debug(f"[DEBUG] Raw response: {completion.choices[0].message.content}")
+            except Exception as debug_e:
+                logging.debug(f"[DEBUG] Could not extract raw response: {debug_e}")
+        raise

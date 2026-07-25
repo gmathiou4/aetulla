@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Aetulla">
+  <title>Aetulla</title>
+  <rect width="200" height="200" fill="#0B0D0C"></rect>
+  <path d="M128,58 C160,64 180,96 164,128 C148,158 104,168 74,148 C46,130 42,92 66,72 C84,58 108,58 118,72 C126,84 122,98 108,104" fill="none" stroke="#2ECC71" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"></path>
+  <g transform="translate(128,58) scale(0.62) translate(-100,-62)">
+    <path d="M100,62 L70,50 C55,55 42,68 40,85 C38,110 48,135 68,155 C80,168 90,174 100,175 C110,174 120,168 132,155 C152,135 162,110 160,85 C158,68 145,55 130,50 Z" fill="#1E9E5B" stroke="#0B0D0C" stroke-width="6" stroke-linejoin="round"></path>
+    <path d="M100,64 L100,150" stroke="#0B0D0C" stroke-width="8" stroke-linecap="round" fill="none"></path>
+    <g transform="rotate(-6 69 92)">
+      <path d="M51,92 C59,80 79,78 87,88 C79,97 59,99 51,92 Z" fill="#F5C542"></path>
+      <path d="M63,91 C67.9,88.6 72.1,88.6 77,91 C72.1,93.4 67.9,93.4 63,91 Z" fill="#0B0D0C"></path>
+    </g>
+    <g transform="rotate(6 131 92)">
+      <path d="M149,92 C141,80 121,78 113,88 C121,97 141,99 149,92 Z" fill="#F5C542"></path>
+      <path d="M123,91 C127.9,88.6 132.1,88.6 137,91 C132.1,93.4 127.9,93.4 123,91 Z" fill="#0B0D0C"></path>
+    </g>
+  </g>
+</svg>

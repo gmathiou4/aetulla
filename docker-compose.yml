@@ -1,6 +1,12 @@
 # ~/ai-stack/docker-compose.yml
-# Full file. Changes vs previous: mem0 now mounts patched memory.py
-# and passes QDRANT_HOST/PORT/COLLECTION as env vars.
+#
+# Local AI stack: Open WebUI + Mem0/OpenMemory + Qdrant + n8n + web extraction,
+# all talking to a native (non-containerized) Ollama on the host.
+#
+# Ollama is intentionally NOT a service here — install/run it natively on the
+# host (see README.md prerequisites) and point OLLAMA_BASE_URL at it via .env.
+#
+# Quick start: cp .env.example .env  →  edit values  →  docker compose up -d
 
 services:
 
@@ -9,13 +15,13 @@ services:
     container_name: n8n
     restart: unless-stopped
     ports:
-      - "5678:5678"
+      - "${N8N_PORT:-5678}:5678"
     environment:
       - N8N_HOST=127.0.0.1
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - GENERIC_TIMEZONE=Europe/Prague
-      - TZ=Europe/Prague
+      - GENERIC_TIMEZONE=${TZ:-Europe/Prague}
+      - TZ=${TZ:-Europe/Prague}
       - N8N_LOG_LEVEL=info
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
@@ -26,6 +32,11 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  # ─────────────────────────────────────────────────────────────
+  # Keeps the default chat model warm in Ollama's VRAM cache so the
+  # first request of the day isn't a cold-load. Harmless if Ollama
+  # is unreachable — it just logs a WARN and retries in 20 min.
+  # ─────────────────────────────────────────────────────────────
   ollama-keepalive:
     image: curlimages/curl:8.10.1
     container_name: ollama-keepalive
@@ -37,48 +48,60 @@ services:
       - -c
       - |
         while true; do
-          curl -sS -X POST http://host.docker.internal:11434/api/generate \
+          curl -sS -X POST ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}/api/generate \
             -H "Content-Type: application/json" \
-            -d '{"model":"qwen2.5:14b-instruct","prompt":"ok","keep_alive":"24h","stream":false}' \
+            -d '{"model":"${LLM_MODEL:-qwen2.5:14b-instruct}","prompt":"ok","keep_alive":"24h","stream":false}' \
             > /dev/null \
-            && echo "$$(date -Iseconds)] warmed qwen2.5:14b-instruct" \
+            && echo "$$(date -Iseconds)] warmed ${LLM_MODEL:-qwen2.5:14b-instruct}" \
             || echo "$$(date -Iseconds)] WARN: keepalive failed";
           sleep 1200;
         done
 
-  searxng-redis:
-    image: redis:7-alpine
-    container_name: searxng-redis
-    restart: unless-stopped
-    command: redis-server --save "" --appendonly no
+  # ─────────────────────────────────────────────────────────────
+  # SearXNG is DISABLED — broken WSL2 bind-mount at the runc level
+  # (see README troubleshooting). Do not re-attempt the mount without
+  # first reading that section. DDGS is the active web-search engine
+  # for Open WebUI's built-in RAG web search instead.
+  # ─────────────────────────────────────────────────────────────
+  # searxng-redis:
+  #   image: redis:7-alpine
+  #   container_name: searxng-redis
+  #   restart: unless-stopped
+  #   command: redis-server --save "" --appendonly no
+  #
+  # searxng:
+  #   image: searxng/searxng:latest
+  #   container_name: searxng
+  #   restart: unless-stopped
+  #   ports:
+  #     - "127.0.0.1:8888:8080"
+  #   volumes:
+  #     - ./searxng_config:/etc/searxng
+  #   environment:
+  #     - SEARXNG_BASE_URL=http://localhost:8888/
+  #     - TZ=${TZ:-Europe/Prague}
+  #   depends_on:
+  #     - searxng-redis
+  #   cap_drop:
+  #     - ALL
+  #   cap_add:
+  #     - CHOWN
+  #     - SETGID
+  #     - SETUID
 
-  searxng:
-    image: searxng/searxng@sha256:201c62d470abf1b3ccad42562b6a8310267fbb022962d8bd410c4b011ec4516e
-    container_name: searxng
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8888:8080"
-    volumes:
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:rw
-    environment:
-      - SEARXNG_BASE_URL=http://localhost:8888/
-      - TZ=Europe/Prague
-    depends_on:
-      - searxng-redis
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETGID
-      - SETUID
-
+  # ─────────────────────────────────────────────────────────────
+  # Playwright version MUST match the playwright pin in Open WebUI's
+  # own requirements.txt (currently 1.58.0). Never bump this alone —
+  # a mismatch produces "428 Precondition Required" from Open WebUI's
+  # web-loader. Check both images' pins together before bumping either.
+  # ─────────────────────────────────────────────────────────────
   playwright:
     image: mcr.microsoft.com/playwright:v1.58.0-noble
     container_name: playwright
     restart: unless-stopped
     command: /bin/sh -c "npx -y playwright@1.58.0 run-server --port 3000 --host 0.0.0.0"
     environment:
-      - TZ=Europe/Prague
+      - TZ=${TZ:-Europe/Prague}
 
   web-extractor:
     build:
@@ -90,30 +113,34 @@ services:
       - PLAYWRIGHT_WS=ws://playwright:3000/
       - PAGE_TIMEOUT_MS=30000
       - CONCURRENCY=3
-      - TZ=Europe/Prague
+      - TZ=${TZ:-Europe/Prague}
     depends_on:
       - playwright
 
   # ─────────────────────────────────────────────────────────────
-  # Qdrant vector store — named mem0_store to satisfy OpenMemory's
-  # hardcoded default (also overridable now via QDRANT_HOST env var
-  # on mem0, thanks to memory.py.patched)
+  # Qdrant vector store — container named mem0_store to satisfy
+  # OpenMemory's original hardcoded default; QDRANT_HOST below is
+  # what memory.py.patched actually reads (the name match is now
+  # coincidental, not load-bearing — safe to rename if you also
+  # update QDRANT_HOST).
   # ─────────────────────────────────────────────────────────────
   mem0_store:
     image: qdrant/qdrant:v1.12.4
     container_name: mem0_store
     restart: unless-stopped
     ports:
-      - "127.0.0.1:6333:6333"
-      - "127.0.0.1:6334:6334"
+      - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     environment:
-      - TZ=Europe/Prague
+      - TZ=${TZ:-Europe/Prague}
 
   # ─────────────────────────────────────────────────────────────
-  # Mem0 / OpenMemory — patched memory.py mounted over the
-  # buggy file. Env vars now actually control the vector store.
+  # Mem0 / OpenMemory — three patched files baked into the image
+  # (see Dockerfile.mem0). All model/dims/vector-store values below
+  # are env-driven; change behavior via .env, never by editing the
+  # patched Python.
   # ─────────────────────────────────────────────────────────────
   mem0:
     build:
@@ -123,47 +150,67 @@ services:
     container_name: mem0
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8765:8765"
+      - "127.0.0.1:${MEM0_PORT:-8765}:8765"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - OPENAI_API_KEY=ollama-dummy
-      - OPENAI_BASE_URL=http://host.docker.internal:11434/v1
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-ollama-dummy}   # insurance for the OpenAI SDK client init; unused for actual auth, Ollama needs no key
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - LLM_MODEL=${LLM_MODEL:-qwen2.5:14b-instruct}
+      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+      - EMBED_DIMS=${EMBED_DIMS:-768}
       - QDRANT_HOST=mem0_store
       - QDRANT_PORT=6333
-      - QDRANT_COLLECTION=openmemory_yorgos
-      - USER=yorgos
-      - TZ=Europe/Prague
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-openmemory_default}
+      # 4 slashes = absolute /data path. A 3-slash relative path or a direct
+      # file bind-mount both break under WSL2/Docker-Desktop at the runc
+      # level — this must stay a named volume on a directory, never a
+      # single-file bind mount.
+      - DATABASE_URL=sqlite:////data/openmemory.db
+      - USER=${MEM0_USER_ID:-default_user}
+      - TZ=${TZ:-Europe/Prague}
+    volumes:
+      - mem0_data:/data
     depends_on:
       - mem0_store
       - ollama-keepalive
+    # No curl/wget in the base image — use Python's stdlib instead.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8765/docs', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:v0.9.5
+    image: ghcr.io/open-webui/open-webui:v0.9.6
     container_name: open-webui
     restart: unless-stopped
     ports:
-      - "3000:8080"
+      - "${OPEN_WEBUI_PORT:-3000}:8080"
     environment:
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - WEBUI_AUTH=true
-      - ENABLE_SIGNUP=false
-      - DEFAULT_LOCALE=en
-      - TZ=Europe/Prague
+      - ENABLE_SIGNUP=${ENABLE_SIGNUP:-false}
+      # If unset, Open WebUI generates and persists its own key under
+      # /app/backend/data on first boot — sessions still survive restarts.
+      # Set this explicitly if you want a portable, reproducible secret
+      # (e.g. shared across a redeploy that wipes open-webui_data).
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-}
+      - DEFAULT_LOCALE=${DEFAULT_LOCALE:-en}
+      - TZ=${TZ:-Europe/Prague}
       - ENABLE_RAG_WEB_SEARCH=true
-      - RAG_WEB_SEARCH_ENGINE=searxng
-      - SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json
+      - RAG_WEB_SEARCH_ENGINE=${RAG_WEB_SEARCH_ENGINE:-duckduckgo}
       - RAG_WEB_SEARCH_RESULT_COUNT=5
       - RAG_WEB_SEARCH_CONCURRENT_REQUESTS=3
       - MEM0_BASE_URL=http://mem0:8765
-      - MEM0_USER_ID=yorgos
+      - MEM0_USER_ID=${MEM0_USER_ID:-default_user}
     volumes:
       - open-webui_data:/app/backend/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       - ollama-keepalive
-      - searxng
       - playwright
       - web-extractor
       - mem0
@@ -172,3 +219,4 @@ volumes:
   n8n_data:
   open-webui_data:
   qdrant_data:
+  mem0_data:
