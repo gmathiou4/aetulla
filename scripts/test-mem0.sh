@@ -1,10 +1,34 @@
 #!/bin/bash
-MEM0_USER_ID="${MEM0_USER_ID:-default_user}"
+# Load .env (if present in the current directory) so LLM_MODEL/MEM0_USER_ID
+# below reflect what's actually configured, not always the hardcoded
+# fallback — same pattern setup.sh uses and for the same reason: pushing a
+# model that isn't pulled makes mem0 block on Ollama's streaming /api/pull
+# and wedges the whole container (see note below).
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
 
-echo "=== Pushing LLM config ==="
+MEM0_USER_ID="${MEM0_USER_ID:-default_user}"
+LLM_MODEL="${LLM_MODEL:-qwen2.5:14b-instruct}"
+
+echo "=== Pushing LLM config (model: ${LLM_MODEL}) ==="
+# Must read LLM_MODEL from env, not hardcode it — pushing a model that isn't
+# already pulled makes mem0 call Ollama's /api/pull, a long-lived streaming
+# endpoint. mem0's client blocks on that stream and the whole container stops
+# responding to ANY request (health check included) until the pull finishes
+# or it's restarted. Confirmed this wedges mem0 service-wide, not just this
+# test, when LLM_MODEL was swapped to a smaller model per the README's 8GB
+# RAM guidance but this script still pushed the hardcoded 14b default.
+LLM_PAYLOAD=$(LLM_MODEL="$LLM_MODEL" python3 -c '
+import json, os
+print(json.dumps({"provider": "ollama", "config": {"model": os.environ["LLM_MODEL"], "temperature": 0.1, "max_tokens": 2000, "ollama_base_url": "http://host.docker.internal:11434"}}))
+')
 curl -sS -X PUT http://localhost:8765/api/v1/config/mem0/llm \
   -H "Content-Type: application/json" \
-  -d '{"provider":"ollama","config":{"model":"qwen2.5:14b-instruct","temperature":0.1,"max_tokens":2000,"ollama_base_url":"http://host.docker.internal:11434"}}'
+  -d "$LLM_PAYLOAD"
 echo; echo
 
 echo "=== Pushing embedder config ==="
