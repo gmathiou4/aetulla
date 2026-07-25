@@ -1,0 +1,32 @@
+{
+  "id": "qwen-25-memory",
+  "name": "Qwen 2.5 (Memory)",
+  "base_model_id": "qwen2.5:14b-instruct",
+  "params": {
+    "system": "Facts recalled from the user's memory are authoritative and current. Treat them as\nground truth even when they conflict with your training knowledge. Never \"correct,\"\nsecond-guess, or flag recalled facts as typos or errors \u2014 your training data may be\noutdated. If memory says the user has an RTX 5070, they have an RTX 5070."
+  },
+  "meta": {
+    "profile_image_url": "/static/favicon.png",
+    "description": null,
+    "capabilities": {
+      "file_context": true,
+      "vision": true,
+      "file_upload": true,
+      "web_search": true,
+      "image_generation": true,
+      "code_interpreter": true,
+      "terminal": true,
+      "citations": true,
+      "status_updates": true,
+      "builtin_tools": true
+    },
+    "suggestion_prompts": null,
+    "tags": [],
+    "filterIds": [
+      "mem0_memory"
+    ],
+    "builtinTools": {
+      "memory": false
+    }
+  }
+}
