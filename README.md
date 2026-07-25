@@ -1,6 +1,6 @@
-<img src="assets/logo.svg" alt="ai-stack logo" width="96" />
+<img src="assets/logo.svg" alt="Aetulla logo" width="96" />
 
-# ai-stack
+# Aetulla
 
 Local, fully-offline AI stack: Open WebUI + Mem0/OpenMemory (long-term memory)
 + Qdrant (vector store) + n8n (automation) + Playwright/Trafilatura (web
