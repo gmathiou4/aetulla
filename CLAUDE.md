@@ -60,8 +60,7 @@ Results go to `docs/benchmarks/step1.md` with reproducible commands.
   `qwen2.5:14b-instruct` is held resident (keep_alive 24h via keepalive sidecar,
   ctx 4096, 9.1 GB, 100% GPU). Free VRAM ≈ 1.2 GB. Anything GPU-side needs the
   chat model swapped/unloaded or a smaller model — budget this explicitly.
-- Remote: `origin https://github.com/gmathiou4/aetulla.git`. Voice work is on
-  branch `voice-loop` (from origin/main); `kit-and-fullstack` is merged (PR #1).
+- Remote: `origin https://github.com/gmathiou4/aetulla.git`; work on `voice-loop`.
 
 ### Ollama models present
 qwen3:30b-a3b (18G), qwen3:14b (9.3G, planned chat upgrade), qwen2.5:14b-instruct
@@ -102,13 +101,11 @@ All images pinned; no `:latest` in active services. Ollama is NEVER containerize
   `categorization.py.patched` (baked at build); `memory.py.original` = reference
 - `setup.sh` — Full Stack installer (<=3 questions); `installer/` — host
   detection, model pulls, `seed_openwebui.py`, fixtures, `smoke_test_notes.md`
-- `scripts/test-mem0.sh` — Mem0 end-to-end smoke test
-- `bin/update.sh`, `bin/updatedeep.sh` — shell functions sourced from ~/.bashrc
-- `web-extractor/` — FastAPI/Trafilatura service
-- `docs/superpowers/plans/` — prior implementation plan
-- Untracked cruft (don't commit blindly): `backups/`, `searxng/`, `.serena/`,
-  `.vscode/`, `bench-*`, `docker-compose.yml.bak.20260517`,
-  `CLAUDE_TASK_kit-and-fullstack.md(+:Zone.Identifier)`
+- `scripts/test-mem0.sh` (Mem0 smoke test), `bin/update*.sh` (shell functions
+  sourced from ~/.bashrc), `web-extractor/` (Trafilatura), `stt/`, `tts/`,
+  `bench/` (audio fixtures, `tts_roundtrip.py`), `docs/superpowers/plans/`
+- Untracked cruft (stage files by name, never `git add -A`): `backups/`, `searxng/`,
+  `.serena/`, `.vscode/`, `bench-*`, `*.bak.*`, `CLAUDE_TASK_*`
 
 ## Hard rules
 
@@ -128,10 +125,9 @@ All images pinned; no `:latest` in active services. Ollama is NEVER containerize
 
 - **vi only** for editing. Full-file replacements for YAML/JSON/configs — never
   partial diffs. Annotate non-obvious code inline.
-- Shell aliases/functions go in `~/.bashrc`.
+- Shell aliases/functions go in `~/.bashrc`. Docker Compose baseline; pin every image.
 - Technical answers: Checklist → Steps → Code → Validation; end with a
   validation command (`docker compose config`, `curl ... | jq`, ...).
-- Docker Compose baseline; digest/version pin every image.
 
 ## Mem0 / Qdrant quirks (already fixed — don't redo)
 
