@@ -257,6 +257,37 @@ services:
       retries: 60
       start_period: 120s
 
+  # ─────────────────────────────────────────────────────────────
+  # Voice loop — TTS (Piper on CPU, one en + one el voice).
+  # Profile "voice": start explicitly, never via bare `up`:
+  #   docker compose --profile voice up -d --no-deps tts
+  # No GPU. CPU is capped two ways: `cpus` (hard, cgroup) and TTS_THREADS
+  # (ONNX intra-op threads) — keep them equal. First start downloads the two
+  # voices (~126 MB) into tts_voices, sha256-verified (needs network once).
+  # ─────────────────────────────────────────────────────────────
+  tts:
+    build:
+      context: ./tts
+      dockerfile: Dockerfile
+    image: aetulla-tts:local
+    container_name: tts
+    profiles: ["voice"]
+    restart: "no"
+    cpus: ${TTS_CPUS:-4}
+    ports:
+      - "127.0.0.1:${TTS_PORT:-8020}:8000"
+    environment:
+      - TTS_THREADS=${TTS_THREADS:-4}
+      - TZ=${TZ:-Europe/Prague}
+    volumes:
+      - tts_voices:/voices
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 60s
+
 volumes:
   n8n_data:
   open-webui_data:
@@ -264,3 +295,4 @@ volumes:
   mem0_data:
   stt_hf:
   stt_cuda_cache:
+  tts_voices:

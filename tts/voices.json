@@ -1,0 +1,23 @@
+{
+  "_comment": "Pinned to a rhasspy/piper-voices commit. sha256 of every file is verified after download and on every start; values cross-checked against Hugging Face's own LFS sha256 / git blob sha1.",
+  "revision": "5041a7a49ae5b3a0f30e6837769eb03fdbb231bd",
+  "base_url": "https://huggingface.co/rhasspy/piper-voices/resolve",
+  "voices": {
+    "en": {
+      "name": "en_US-lessac-medium",
+      "dir": "en/en_US/lessac/medium",
+      "files": {
+        "en_US-lessac-medium.onnx": "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
+        "en_US-lessac-medium.onnx.json": "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0"
+      }
+    },
+    "el": {
+      "name": "el_GR-rapunzelina-low",
+      "dir": "el/el_GR/rapunzelina/low",
+      "files": {
+        "el_GR-rapunzelina-low.onnx": "eebb335946c5d868743ff35fbb66b6f00e431b5b9b2e18caf47d3f609a2bf2e1",
+        "el_GR-rapunzelina-low.onnx.json": "24ccc31c1306df4364fd85b56aeb09aba8c185a1fdf7db1367a72d4affe478e4"
+      }
+    }
+  }
+}
