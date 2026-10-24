@@ -2,3 +2,4 @@
 *.log
 .superpowers/
 CLAUDE.local.md
+__pycache__/
