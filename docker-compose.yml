@@ -215,8 +215,52 @@ services:
       - web-extractor
       - mem0
 
+  # ─────────────────────────────────────────────────────────────
+  # Voice loop — STT (faster-whisper large-v3-turbo on GPU).
+  # Profile "voice": never starts with the default stack. Start explicitly:
+  #   docker compose --profile voice up -d --no-deps stt
+  # VRAM: ~1.3 GB. It cannot co-reside with the pinned 14B chat model
+  # (only ~1.2 GB free while that is loaded) — unload it first.
+  # First start downloads the model into stt_hf (needs network once) and
+  # JIT-compiles sm_120 kernels into stt_cuda_cache (~15 s, once).
+  # ─────────────────────────────────────────────────────────────
+  stt:
+    build:
+      context: ./stt
+      dockerfile: Dockerfile
+    image: aetulla-stt:local
+    container_name: stt
+    profiles: ["voice"]
+    restart: "no"
+    ports:
+      - "127.0.0.1:${STT_PORT:-8010}:8000"
+    environment:
+      - STT_MODEL=${STT_MODEL:-deepdml/faster-whisper-large-v3-turbo-ct2}
+      - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-int8_float16}
+      - STT_BEAM_SIZE=${STT_BEAM_SIZE:-1}
+      - TZ=${TZ:-Europe/Prague}
+    volumes:
+      - stt_hf:/cache/hf
+      - stt_cuda_cache:/cache/cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # Passes only after model load + warmup (503 until then).
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+
 volumes:
   n8n_data:
   open-webui_data:
   qdrant_data:
   mem0_data:
+  stt_hf:
+  stt_cuda_cache:

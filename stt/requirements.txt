@@ -1,0 +1,19 @@
+# Exact pins. ctranslate2/faster-whisper/cuBLAS/cuDNN are the combination validated
+# on RTX 5070 (sm_120) with the CUDA 12.8 base image. Don't bump one alone.
+ctranslate2==4.8.3
+faster-whisper==1.2.1
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.27.0.42
+fastapi==0.115.6
+uvicorn==0.34.0
+python-multipart==0.0.20
+
+# Transitive deps pinned to what resolved and worked at build time.
+# faster-whisper 1.2.1 declares only "av>=11"; unpinned, pip picked av 19 whose
+# av.open() rejects the metadata_errors= kwarg faster-whisper passes -> every
+# /transcribe returned 400. av 16.0.1 verified on the benchmark WAVs.
+av==16.0.1
+numpy==2.5.4
+onnxruntime==1.31.0
+huggingface_hub==2.3.0
+tokenizers==0.23.3
