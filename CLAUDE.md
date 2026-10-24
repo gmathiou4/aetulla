@@ -22,7 +22,9 @@ offline with no API key.
 ## Build plan (10 steps)
 
 1. **Bare voice loop** — push-to-talk → STT → local LLM → TTS; measure latency + VRAM. *(current)*
-2. Greek evaluation — STT on Greek and Cretan audio, etymology accuracy.
+2. Greek evaluation — STT on Greek and Cretan audio, etymology accuracy. Include
+   `STT_BEAM_SIZE=1` vs `5` on Greek (accuracy vs latency): beam 1 made a gender
+   agreement error (ποιο/ποια) on the Piper fixture.
 3. Orchestrator + model lifecycle.
 4. Mem0/Qdrant memory.
 5. Tools — DDGS search, n8n, allow-listed system actions with confirmation.
@@ -85,6 +87,9 @@ All images pinned; no `:latest` in active services. Ollama is NEVER containerize
   `docker compose --profile voice up -d --no-deps stt` (never bare `up`). ~1.1 GB
   VRAM; needs the 14B unloaded. Volumes `stt_hf`, `stt_cuda_cache` (sm_120 PTX JIT
   cache: cold start 55 s, warm 6 s). `av` must stay pinned (19.x breaks decode).
+- **tts** (`aetulla-tts:local`, `tts/`) — 127.0.0.1:8020 — Piper on CPU (en + el
+  voices, sha256-verified into `tts_voices`), profile `voice`, `cpus` + `TTS_THREADS`
+  capped at 4. `POST /synthesize` -> WAV, timings in `X-*` headers. No GPU needed.
 - **SearXNG: permanently disabled** (WSL2 bind-mount bug at runc level). Commented
   out in compose. Do not re-add or re-attempt.
 - Volumes: `ai-stack_{mem0_data,n8n_data,open-webui_data,qdrant_data}`.
@@ -171,7 +176,11 @@ All images pinned; no `:latest` in active services. Ollama is NEVER containerize
    — stale (SearXNG disabled; mem0, mem0_store, web-extractor, playwright
    missing). It also runs `docker system prune -f` and (via `update`)
    `apt full-upgrade` — too aggressive for a public script.
-5. README says "Expect 7 services" and lists models/ports that predate this plan;
+5. mem0 on main has a healthcheck the running container lacks, so any bare
+   `docker compose up` (including updatedeep.sh) recreates mem0. Plan: a deliberate
+   recreate later, after a Qdrant snapshot of the live collection. Not now.
+6. `stt` image is 4.86 GB — slim before the public release.
+7. README says "Expect 7 services" and lists models/ports that predate this plan;
    `CLAUDE.md` skills paths (`~/projects/skills/*.md`) are legacy extracts.
 
 ## Known coupling
@@ -189,6 +198,6 @@ extraction to the voice model needs re-validation first. Not acted on yet.
 - GPU tests: ollama-keepalive is stopped and the 14B unloaded for the duration
   of a test session only; restore both afterwards and verify with `ollama ps` +
   `nvidia-smi`. Ask before doing this outside an approved test.
-- CTranslate2 on Blackwell (sm_120) is unverified — test before building around it.
-- Piper el_GR voice availability unverified.
-- Krikri-8B Ollama-compatible GGUF unverified; ask before importing.
+- Greek TTS: `el_GR-rapunzelina-low` garbles short utterances in the TTS->STT
+  round trip; `rapunzelina/medium` and `joy/medium` exist — evaluate before Step 2.
+- Krikri-8B: official GGUF is v1 only (v1.5 exists, no GGUF); ask before importing.
