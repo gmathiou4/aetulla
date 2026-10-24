@@ -1,199 +1,189 @@
-# CLAUDE.md — ~/ai-stack project
+# CLAUDE.md — My Aetulla (repo: ~/ai-stack)
 
-Local AI stack: Open WebUI + Mem0 + Qdrant + Ollama on WSL2.
-Skills at `~/projects/skills/`. Load on demand, not speculatively.
+Privacy-first, fully local, voice-first AI assistant. Built on a local AI stack
+(Open WebUI + Mem0 + Qdrant + Ollama + n8n) on WSL2. Skills at
+`~/projects/skills/` — load on demand, not speculatively.
 
-Two shippable products live in this repo now (see "Kit + Full Stack" below):
-a **Docker Compose Kit** for technical users and a **Full Stack `setup.sh`
-installer** for non-technical users. Both are built on the stack described
-in this file.
+## Who / how to respond
 
-## Who you're working with
+DevOps/SRE/data engineer, Central Europe timezone. Greek speaker. Capable; be
+direct, no padding, brutally honest. Don't repeat failed suggestions. Don't
+invent facts ("I don't know" / "verify this"). Lead with the answer.
+Report order: what I did → proof (command output) → what failed/uncertain →
+one recommended next step.
 
-DevOps/SRE engineer, Central Europe timezone. WSL2 Ubuntu 24.04 on Windows 11.
-Greek speaker. Personal PC: Ryzen 9800X3D + RTX 5070 + 32GB DDR5.
+## Vision
 
-## How to respond — non-negotiable
+Anyone can run it on consumer hardware. Voice-first: you talk, it answers,
+acts through tools, reports back. Fully local by default.
+Constraints: STT + LLM must fit together in 12 GB VRAM; must work fully
+offline with no API key.
 
-- **Brutally honest.** No filler, no sugar-coating, no toxic positivity.
-- **Get to the point.** Skip preamble.
-- **Don't repeat failed suggestions.** If a fix doesn't work, say so and pivot.
-- **Don't invent facts.** Say "I don't know" or "verify this."
+## Build plan (10 steps)
 
-## Output format
+1. **Bare voice loop** — push-to-talk → STT → local LLM → TTS; measure latency + VRAM. *(current)*
+2. Greek evaluation — STT on Greek and Cretan audio, etymology accuracy.
+3. Orchestrator + model lifecycle.
+4. Mem0/Qdrant memory.
+5. Tools — DDGS search, n8n, allow-listed system actions with confirmation.
+6. RAG over Perseus (LSJ lexicon, mythology).
+7. Heavy mode — unload voice, load bigger model, reload, spoken status report, guaranteed cleanup.
+8. Optional, off-by-default Claude API route via LiteLLM (anonymised brief, numbered steps only, spend cap).
+9. Streaming + wake word.
+10. Packaging.
 
-- **Technical (DevOps, infra, code):** Checklist → Steps → Code → Validation.
-  Annotate non-obvious code inline. Docker Compose baseline.
-- **vi only** for editing. Full-file replacements for YAML/JSON/configs. Never
-  partial diffs — indentation context is invisible in chat.
-- Always end with a validation command (`docker compose config`,
-  `python -m json.tool`, `curl ... | jq`, `nginx -t`).
+## Architecture (Step 1 target)
 
-## Stack inventory — what runs here
+```
+Windows client (PTT hotkey, mic, playback)   <- mic can't be captured reliably in WSL
+   | HTTP over localhost
+   v
+WSL2 / Docker Compose (project ai-stack_default)
+   STT  faster-whisper large-v3-turbo (int8/int8_float16, GPU, resident)  [new]
+   LLM  host Ollama :11434 (keep_alive)                                    [existing]
+   TTS  Piper on CPU, one en + one el_GR voice                             [new]
+```
+Step 1 splits: **1a** server pipeline + WAV benchmark script (do fully first),
+**1b** minimal single-file Windows PTT client.
+Results go to `docs/benchmarks/step1.md` with reproducible commands.
 
-All containers in `docker-compose.yml`. Default network `ai-stack_default`.
-Ollama runs natively on the host (WSL2), reached via
-`host.docker.internal:11434` — never containerize Ollama here.
+## Environment facts (verified 2026-10-24)
 
-- **open-webui** (ghcr.io/open-webui/open-webui:v0.9.6) — port 3000 — chat UI, RAG, web search
-- **ollama** (host, not container) — port 11434 — LLM runtime
-- **ollama-keepalive** — sidecar that pings Ollama every 20min to keep the chat model warm
-- **mem0** (`mem0-patched:local`, built from `Dockerfile.mem0`) — port 8765 — temporal memory, OpenMemory REST API. **Not the upstream image** — 3 vendor bugs patched at build time, see below.
-- **mem0_store** (qdrant/qdrant:v1.12.4) — ports 6333/6334 — vector store
-- **searxng** + **searxng-redis** — **permanently disabled** (commented out in `docker-compose.yml`), broken WSL2 bind-mount at the runc level. DuckDuckGo is the active `RAG_WEB_SEARCH_ENGINE` instead. Do not re-attempt the mount without reading the compose file's comment on it first.
-- **playwright** + **web-extractor** — Trafilatura page extraction for RAG. `playwright`'s version (`v1.58.0-noble`) must exactly match the `playwright` pin in Open WebUI's own `requirements.txt` — never bump one without checking the other (mismatch → `428 Precondition Required`).
-- **n8n** (n8nio/n8n:1.74.0) — port 5678 — workflow automation
+- Ryzen 9800X3D, **RTX 5070 12 GB (Blackwell, sm_120, compute cap 12.0)**.
+- Windows driver 621.01, CUDA UMD 13.5 (nvidia-smi 620.67.01 in WSL).
+- WSL2 sees **~23 GB RAM** (not 32), 839 GB free disk.
+- Ollama 0.40.10 native on host (systemd), Docker 29.9.2, Compose v5.6.1.
+  Docker runtimes: runc (default), nvidia available.
+- **Idle VRAM baseline is already ~11.0 / 12.2 GB** because
+  `qwen2.5:14b-instruct` is held resident (keep_alive 24h via keepalive sidecar,
+  ctx 4096, 9.1 GB, 100% GPU). Free VRAM ≈ 1.2 GB. Anything GPU-side needs the
+  chat model swapped/unloaded or a smaller model — budget this explicitly.
+- Remote: `origin https://github.com/gmathiou4/aetulla.git`. Voice work is on
+  branch `voice-loop` (from origin/main); `kit-and-fullstack` is merged (PR #1).
 
-All images pinned to a digest or explicit version tag — no `:latest` in any
-active (uncommented) service.
+### Ollama models present
+qwen3:30b-a3b (18G), qwen3:14b (9.3G, planned chat upgrade), qwen2.5:14b-instruct
+(chat + Mem0 fact extraction), qwen2.5:7b, qwen2.5-coder:14b, deepseek-r1:14b,
+gemma4, gemma3:12b (better Greek than qwen), qwen2.5vl:7b, qwen3.5:35b-a3b (23G),
+all-minilm, **nomic-embed-text** (768-dim; hard dependency of Qdrant collection
+`QDRANT_COLLECTION`, `openmemory_default` unless overridden in `.env` — never
+remove/swap). No Greek-tuned model (Krikri) present.
 
-## Active models on host Ollama
+## Running services (docker-compose.yml)
 
-- **qwen2.5:14b-instruct** — default chat, kept warm by keepalive
-- **gemma3:12b** — multilingual fallback (better Greek than qwen)
-- **qwen2.5-coder:14b** — code tasks
-- **deepseek-r1:14b** — reasoning
-- **qwen2.5vl:7b** — vision
-- **nomic-embed-text** — RAG embeddings (768-dim, used by Mem0)
+All images pinned; no `:latest` in active services. Ollama is NEVER containerized.
+- **open-webui** v0.9.6 — :3000 (0.0.0.0) — chat UI, RAG, DDGS web search
+- **n8n** 1.74.0 — :5678 (0.0.0.0)
+- **mem0** `mem0-patched:local` (Dockerfile.mem0) — 127.0.0.1:8765
+- **mem0_store** qdrant v1.12.4 — 127.0.0.1:6333/6334
+- **ollama-keepalive** curl sidecar, pings every 20 min (model = `LLM_MODEL`)
+- **playwright** v1.58.0-noble + **web-extractor** (Trafilatura) — internal only.
+  Playwright version must equal the pin in Open WebUI's requirements.txt
+  (mismatch → 428 Precondition Required).
+- **SearXNG: permanently disabled** (WSL2 bind-mount bug at runc level). Commented
+  out in compose. Do not re-add or re-attempt.
+- Volumes: `ai-stack_{mem0_data,n8n_data,open-webui_data,qdrant_data}`.
+  (~60 anonymous volumes also exist; do not prune without asking.)
 
-## Mem0 / Qdrant — known quirks (already fixed, don't redo)
+## Repo map
 
-`mem0`'s image is no longer the stock `mem0/openmemory-mcp` — it's a custom
-build (`Dockerfile.mem0`, base pinned to digest) that bakes in **3 patched
-files at build time** (not runtime-mounted):
+- `docker-compose.yml`, `.env` (secret, gitignored), `.env.example`
+- `Dockerfile.mem0` + `memory.py.patched`, `config.py.patched`,
+  `categorization.py.patched` (baked at build); `memory.py.original` = reference
+- `setup.sh` — Full Stack installer (<=3 questions); `installer/` — host
+  detection, model pulls, `seed_openwebui.py`, fixtures, `smoke_test_notes.md`
+- `scripts/test-mem0.sh` — Mem0 end-to-end smoke test
+- `bin/update.sh`, `bin/updatedeep.sh` — shell functions sourced from ~/.bashrc
+- `web-extractor/` — FastAPI/Trafilatura service
+- `docs/superpowers/plans/` — prior implementation plan
+- Untracked cruft (don't commit blindly): `backups/`, `searxng/`, `.serena/`,
+  `.vscode/`, `bench-*`, `docker-compose.yml.bak.20260517`,
+  `CLAUDE_TASK_kit-and-fullstack.md(+:Zone.Identifier)`
 
-- `memory.py.patched` → `/usr/src/openmemory/app/utils/memory.py` — the
-  mem0-client config (`get_default_memory_config()`). Vector store dims/host,
-  LLM/embedder model, all read from env (`EMBED_DIMS`, `QDRANT_HOST`,
-  `QDRANT_PORT`, `QDRANT_COLLECTION`, `LLM_MODEL`, `EMBED_MODEL`,
-  `OLLAMA_BASE_URL`), never hardcoded.
-- `config.py.patched` → `/usr/src/openmemory/app/routers/config.py` — the
-  `/config` REST API's DB-seed defaults (`get_default_configuration()`).
-  **This is a separate function from `memory.py`'s** — the `/config` API
-  serves from the database, not the file, so the file only seeds an *empty*
-  DB. Both must stay patched and read the same env vars, or they drift.
-- `categorization.py.patched` → `/usr/src/openmemory/app/utils/categorization.py`
-  — upstream hardcoded a bare `OpenAI()` client with no `base_url`, so every
-  inferred write threw a non-fatal `AttributeError` against real OpenAI with
-  a dummy key. Repointed at Ollama's OpenAI-compatible endpoint, model from
-  `LLM_MODEL`.
+## Hard rules
 
-Other things to remember:
+- Don't break the existing stack. Don't modify/restart/remove existing services,
+  volumes, the Qdrant collection, or nomic-embed-text without asking.
+- New services join the existing Compose project. Bind ports to `127.0.0.1` only.
+- Never read/print/commit `.env` or secrets. New variables go in `.env.example`.
+- Plan first. Ask before anything destructive/high-blast-radius: deleting files,
+  pruning images/volumes, GPU/driver changes, pulling models >10 GB.
+- Verify with real command output (nvidia-smi, docker ps, logs, timings). No
+  "works" claims without proof.
+- If an approach fails twice: stop, report what failed and why, propose one
+  alternative. Don't loop.
+- Do not push without asking. Feature branches, not main.
 
-- Vector store collection: `openmemory_default` in Qdrant at `mem0_store:6333`,
-  born at whatever `EMBED_DIMS` was set to on first write. Mem0 does **not**
-  re-dimension an existing collection — if it's wrong, delete the (empty)
-  collection and let the next write recreate it.
-- LLM + embedder config can also be pushed live via `PUT
-  /api/v1/config/mem0/llm` and `PUT /api/v1/config/mem0/embedder` — this
-  does NOT persist across `docker compose rm`/rebuild; the env-driven
-  defaults above are what actually ships. Smoke-test script: `scripts/test-mem0.sh`.
-- `DATABASE_URL=sqlite:////data/openmemory.db` — **4 slashes = absolute
-  path**, backed by a **named volume on a directory** (`mem0_data:/data`).
-  WSL2/Docker-Desktop single-file bind-mounts are broken at the runc level
-  and silently wipe the DB on recreate — never bind-mount the DB file
-  directly.
-- OpenMemory does **not** auto-create users on a plain REST write — an
-  unknown `user_id` 404s "User not found". `setup.sh` seeds the user via one
-  inferred write; a Kit user following the README's first-run checklist does
-  the same manually.
-- **`GET /api/v1/memories/?user_id=...` (list_memories) is broken upstream**
-  — 500s on every call (Pydantic serialization bug in vendor
-  `routers/memories.py`, joins `App`/`Category` but never maps them onto the
-  response fields). Not a bug in any of our patches — do not try to fix by
-  touching `memory.py.patched`/`config.py.patched`/`categorization.py.patched`.
-  Use `POST /api/v1/memories/filter` instead (builds `MemoryResponse`
-  manually, doesn't hit it) — `scripts/test-mem0.sh` and `setup.sh` both do
-  this already. The actual chat recall path is unaffected either way: the
-  installed Mem0 filter's `inlet()` goes straight to Qdrant `points/search`,
-  and `outlet()` is a `POST`, neither goes through the broken endpoint.
+## Conventions
 
-## Open WebUI Mem0 filter — gotchas
+- **vi only** for editing. Full-file replacements for YAML/JSON/configs — never
+  partial diffs. Annotate non-obvious code inline.
+- Shell aliases/functions go in `~/.bashrc`.
+- Technical answers: Checklist → Steps → Code → Validation; end with a
+  validation command (`docker compose config`, `curl ... | jq`, ...).
+- Docker Compose baseline; digest/version pin every image.
 
-- It's a **Filter** (`inlet` recall + `outlet` store), REST not MCP. `inlet`
-  embeds the query via Ollama, does a Qdrant `points/search` filtered by
-  `user_id`, injects top-K `payload.data` as a system block — trust-recalled
-  -facts instruction baked directly into that injected block (Option B), so
-  it survives regardless of which model/system-prompt it's bound to.
-  `outlet` is `POST /api/v1/memories/ {user_id, text, infer:true}`. Hooks
-  fail open — never break chat on error.
-- **A Function newly created via script/API defaults to `is_active=0`.**
-  Binding it to a model via `filterIds` does **not** implicitly enable it —
-  `utils/filter.py::get_sorted_filter_ids` excludes globally-inactive
-  functions regardless of per-model binding. This bit us once already: the
-  live filter existed, was bound to a model, and still never fired in chat
-  because it was never toggled on after creation (confirmed via
-  created_at/updated_at — not a restart/recreate artifact, just never
-  flipped). `installer/seed_openwebui.py` sets `is_active=1` directly at
-  insert time specifically to prevent this from ever reproducing on a fresh
-  install.
-- Base Ollama models can't hold a system prompt or filter binding in Open
-  WebUI — only custom model entries can. Always ship a pre-made model entry
-  (`installer/fixtures/qwen_memory_model.json`), never rely on the base model.
+## Mem0 / Qdrant quirks (already fixed — don't redo)
 
-## Kit + Full Stack (installer/, setup.sh, README.md)
+- Mem0 is a custom build with 3 patched files (see Repo map). `memory.py`
+  (`get_default_memory_config`) and `config.py` (`get_default_configuration`,
+  seeds the DB behind `/config`) are separate functions — keep both reading the
+  same env vars (`EMBED_DIMS`, `QDRANT_*`, `LLM_MODEL`, `EMBED_MODEL`,
+  `OLLAMA_BASE_URL`).
+- Qdrant collection `openmemory_default` (or `QDRANT_COLLECTION`) is born at the `EMBED_DIMS` of first
+  write; Mem0 never re-dimensions it. Wrong size → delete the empty collection.
+- Live `PUT /api/v1/config/mem0/{llm,embedder}` does not survive rebuild.
+- `DATABASE_URL=sqlite:////data/openmemory.db` (4 slashes) on named volume
+  `mem0_data:/data`. Never single-file bind-mount (silently wiped on WSL2).
+- OpenMemory 404s "User not found" for unseeded `user_id`; seed with one
+  inferred write.
+- `GET /api/v1/memories/` is broken upstream (500). Use
+  `POST /api/v1/memories/filter`. Chat recall path is unaffected.
 
-Two products ship from this repo:
+## Open WebUI gotchas
 
-- **Docker Compose Kit** (technical users): `git clone` → `cp .env.example
-  .env` → `docker compose up -d`. See `README.md` for the full install +
-  first-run checklist + troubleshooting.
-- **Full Stack installer** (non-technical users): `bash setup.sh` — ≤3
-  questions, detects the right `OLLAMA_BASE_URL` for the host OS, pulls
-  required models, brings the stack up, seeds the OpenMemory user + the
-  pre-configured memory-enabled model/filter, runs an end-to-end recall
-  check, prints a green/red summary.
+- Mem0 integration is a **Filter** (`inlet` recall via Qdrant `points/search`,
+  `outlet` POST store); fails open.
+- Newly created Functions default `is_active=0`; binding via `filterIds` does
+  not enable them. `installer/seed_openwebui.py` sets `is_active=1` on insert.
+- Base Ollama models can't carry a system prompt/filter; ship a custom model
+  entry (`installer/fixtures/qwen_memory_model.json`).
+- RAG/web-search settings are DB-authoritative once set in the UI; env only
+  seeds first boot.
+- `setup.sh` testing: compose uses fixed `container_name`s, so a scratch clone
+  collides with the live stack. `docker compose down` (no `-v`) first, restore after.
 
-`installer/` layout:
-- `detect_ollama_host.sh` — WSL2/macOS → `host.docker.internal`; Linux-native
-  Docker ≥20.10 → same (via `extra_hosts: host-gateway`); older Engine →
-  bridge gateway IP fallback.
-- `pull_models.sh` — idempotent required+optional `ollama pull`. Presence
-  check matches both the untagged and implicit-`:latest` forms of a model
-  name (`ollama list` shows untagged pulls as `name:latest`) — exact-match
-  against the bare name alone always reports a false MISSING.
-- `seed_openwebui.py` + `fixtures/*.json` — seeds the Mem0 filter Function
-  and the memory-enabled Model directly into `webui.db` via SQLite
-  (`INSERT ... ON CONFLICT DO UPDATE`, idempotent), sidestepping the
-  admin-auth bootstrap problem on a fresh install (no admin account exists
-  yet, so the authenticated REST API isn't usable). Run this via `docker cp`
-  + `docker exec` **inside** the `open-webui` container, not against the
-  `docker inspect`-reported host volume path — on Docker Desktop
-  (Mac/Windows/WSL2, this Kit's primary target) named-volume data lives
-  inside Docker Desktop's own VM and isn't reachable at that path from the
-  host.
-- `smoke_test_notes.md` — the Playwright UI smoke test is currently
-  **blocked**, not automated: the Playwright MCP tool used to drive it is
-  hardcoded to the `chrome` browser channel, which needs root to install
-  (`apt-get install google-chrome-stable`) and this environment has no
-  passwordless sudo. The underlying functionality it would confirm (recall
-  path, seeding, active function/model) is independently verified via direct
-  API/DB checks instead — see that file for exactly what is and isn't
-  covered, and how to finish it once the MCP browser is fixed.
+## Known release blockers
 
-`setup.sh` has no compose-level healthcheck gate for `mem0` (only
-`open-webui` has one) — it polls `mem0`'s `/docs` before writing, since a
-container recreate can still be mid-boot right after `docker compose up -d`
-returns. If you add new post-`up` steps that hit a service other than
-`open-webui`, don't assume it's ready just because the compose command
-returned.
+1. README clone line uses SSH (`git@github.com:gmathiou4/ai-stack.git`) — must be
+   HTTPS and the correct repo name (`aetulla`).
+2. No `LICENSE` file.
+3. Open WebUI (:3000) and n8n (:5678) bind to `0.0.0.0`; the public kit's default
+   must be `127.0.0.1`.
+4. `bin/updatedeep.sh`: `docker compose pull` will try to pull `mem0-patched:local`
+   from a registry (it is a local build; needs `--ignore-buildable` / build
+   instead). Its health filter greps only `open-webui|n8n|ollama-keepalive|searxng`
+   — stale (SearXNG disabled; mem0, mem0_store, web-extractor, playwright
+   missing). It also runs `docker system prune -f` and (via `update`)
+   `apt full-upgrade` — too aggressive for a public script.
+5. README says "Expect 7 services" and lists models/ports that predate this plan;
+   `CLAUDE.md` skills paths (`~/projects/skills/*.md`) are legacy extracts.
 
-**Testing `setup.sh` locally:** its `docker-compose.yml` uses fixed
-`container_name` values (`mem0`, `n8n`, `open-webui`, etc.) — running it
-from *any* directory, including a scratch clone in `/tmp`, recreates those
-same-named containers regardless of which checkout started them. `docker
-compose down` (no `-v`) the live stack first to free the names/ports before
-testing a scratch clone, then bring the live stack back up afterward —
-named volumes aren't touched by `down` and reattach automatically.
+## Known coupling
 
-## Skills — load when relevant
+Mem0 fact extraction uses `qwen2.5:14b-instruct` (`LLM_MODEL`). If the voice LLM
+displaces it from VRAM, every memory write forces a model swap. Moving
+extraction to the voice model needs re-validation first. Not acted on yet.
 
-- `~/projects/skills/linux-environment.md` — WSL2, Ubuntu, bash, Ollama systemd,
-  full Open WebUI/Trafilatura stack docs, model fleet, vi conventions
-- `~/projects/skills/devops-runbook.md` — triage templates, Kafka/HANA/Redis/
-  Postgres/Mongo/Cassandra commands, incident response
-- `~/projects/skills/local-ai-setup.md` — Windows-side install (Ollama, WebUI,
-  n8n, ComfyUI, MCP configs, NVIDIA driver checks)
+## Open questions / risks (Step 1)
 
-These files are rough — legacy extract, not yet rewritten. Flag duplication or
-stale info when you spot it.
+- **Usable VRAM budget is ~10 GB, not 12** (desktop/driver overhead). A 14B chat
+  model won't co-reside with Whisper. Voice LLM candidates: `qwen3:8b`,
+  Llama-Krikri 8B (GGUF source TBD, ask before importing); `qwen2.5:14b-instruct`
+  is a solo baseline only (measured with no STT resident).
+- GPU tests: ollama-keepalive is stopped and the 14B unloaded for the duration
+  of a test session only; restore both afterwards and verify with `ollama ps` +
+  `nvidia-smi`. Ask before doing this outside an approved test.
+- CTranslate2 on Blackwell (sm_120) is unverified — test before building around it.
+- Piper el_GR voice availability unverified.
+- Krikri-8B Ollama-compatible GGUF unverified; ask before importing.
