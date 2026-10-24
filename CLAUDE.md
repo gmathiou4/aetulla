@@ -80,6 +80,11 @@ All images pinned; no `:latest` in active services. Ollama is NEVER containerize
 - **playwright** v1.58.0-noble + **web-extractor** (Trafilatura) — internal only.
   Playwright version must equal the pin in Open WebUI's requirements.txt
   (mismatch → 428 Precondition Required).
+- **stt** (`aetulla-stt:local`, `stt/`) — 127.0.0.1:8010 — faster-whisper
+  large-v3-turbo on GPU, compose profile `voice`, `restart: "no"`. Start ONLY via
+  `docker compose --profile voice up -d --no-deps stt` (never bare `up`). ~1.1 GB
+  VRAM; needs the 14B unloaded. Volumes `stt_hf`, `stt_cuda_cache` (sm_120 PTX JIT
+  cache: cold start 55 s, warm 6 s). `av` must stay pinned (19.x breaks decode).
 - **SearXNG: permanently disabled** (WSL2 bind-mount bug at runc level). Commented
   out in compose. Do not re-add or re-attempt.
 - Volumes: `ai-stack_{mem0_data,n8n_data,open-webui_data,qdrant_data}`.
