@@ -59,6 +59,7 @@ def main():
     ap.add_argument("--stt", default="http://127.0.0.1:8010")
     ap.add_argument("--runs", type=int, default=5)
     ap.add_argument("--roundtrip", action="store_true")
+    ap.add_argument("--trials", type=int, default=5, help="round-trip trials per text")
     a = ap.parse_args()
 
     print(f"{'lang':4} {'len':5} {'chars':>5} {'audio_s':>8} {'synth_ms(med)':>14} {'min':>6} {'max':>6} {'RTF(med)':>9}")
@@ -73,13 +74,21 @@ def main():
         print(f"{lang:4} {kind:5} {len(text):5d} {audio_s:8.2f} {statistics.median(ms):14.1f} {min(ms):6.1f} {max(ms):6.1f} {statistics.median(rtf):9.3f}")
 
     if a.roundtrip:
-        print("\nround trip: text -> TTS -> STT (forced language) -> compare")
+        # Piper is stochastic (noise_scale), so one sample per phrase misleads: synthesize fresh each trial.
+        print(f"\nround trip: text -> TTS -> STT (forced language) -> compare, {a.trials} fresh trials per text")
         for (lang, kind), text in TEXTS.items():
-            r = stt(a.stt, wavs[(lang, kind)], lang)
-            ref, hyp = norm(text), norm(r["text"])
-            ref_na, hyp_na = norm(text, True), norm(r["text"], True)
-            print(f"[{lang}/{kind}] strict WER={wer(ref, hyp):.3f} exact={ref == hyp} | accent-insensitive WER={wer(ref_na, hyp_na):.3f} exact={ref_na == hyp_na}"
-                  f" | stt_total={r['timings_ms']['total']}ms\n   in : {text}\n   out: {r['text']}")
+            w_s, w_a, ex_s, ex_a, outs = [], [], 0, 0, []
+            for _ in range(a.trials):
+                wav, h = synth(a.tts, text, lang)
+                r = stt(a.stt, wav, lang)
+                ref, hyp = norm(text), norm(r["text"])
+                ref_na, hyp_na = norm(text, True), norm(r["text"], True)
+                w_s.append(wer(ref, hyp)); w_a.append(wer(ref_na, hyp_na))
+                ex_s += ref == hyp; ex_a += ref_na == hyp_na; outs.append(r["text"])
+            print(f"[{lang}/{kind}] voice={h['x-voice']} mean WER strict={statistics.mean(w_s):.3f} accent-insens={statistics.mean(w_a):.3f}"
+                  f" | exact {ex_s}/{a.trials} strict, {ex_a}/{a.trials} accent-insens")
+            print(f"   in : {text}")
+            for o in outs: print(f"   out: {o}")
 
 
 if __name__ == "__main__":
