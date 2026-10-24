@@ -181,19 +181,19 @@ All images pinned; no `:latest` in active services. Ollama is NEVER containerize
 
 ## Known coupling
 
-Mem0 fact extraction uses `qwen2.5:14b-instruct` (`LLM_MODEL`). If the voice LLM
-displaces it from VRAM, every memory write forces a model swap. Moving
-extraction to the voice model needs re-validation first. Not acted on yet.
+Mem0 fact extraction uses `qwen2.5:14b-instruct` (`LLM_MODEL`). If the voice LLM displaces
+it from VRAM, every memory write forces a model swap. Moving extraction needs re-validation.
 
-## Open questions / risks (Step 1)
+## Step 1 findings / design rules (numbers: docs/benchmarks/step1.md)
 
-- **Usable VRAM budget is ~10 GB, not 12** (desktop/driver overhead). A 14B chat
-  model won't co-reside with Whisper. Voice LLM candidates: `qwen3:8b`,
-  Llama-Krikri 8B (GGUF source TBD, ask before importing); `qwen2.5:14b-instruct`
-  is a solo baseline only (measured with no STT resident).
-- GPU tests: ollama-keepalive is stopped and the 14B unloaded for the duration
-  of a test session only; restore both afterwards and verify with `ollama ps` +
-  `nvidia-smi`. Ask before doing this outside an approved test.
-- Greek TTS: `el_GR-rapunzelina-low` garbles short utterances in the TTS->STT
-  round trip; `rapunzelina/medium` and `joy/medium` exist — evaluate before Step 2.
-- Krikri-8B: official GGUF is v1 only (v1.5 exists, no GGUF); ask before importing.
+- **Usable VRAM ~10 GB, not 12.** 14B can't co-reside with Whisper; 8B + stt leaves ~4 GB.
+- GPU tests: stop ollama-keepalive + unload the 14B for the session only; restore both
+  and verify with `ollama ps` + `nvidia-smi`. Ask before doing this outside a test.
+- **Brain = `qwen3:8b` with `think=false`** (tool calls 10/10 en+el). **Krikri v1 Q4_K_M**
+  (`hf.co/ilsp/Llama-Krikri-8B-Instruct-GGUF:Q4_K_M`) = Greek specialist only: Greek tool
+  calls 0/5. Its Modelfile sets `num_ctx 131072` — always override to 4096. v1.5 has no GGUF.
+- **Whisper is unreliable on short Greek clips and auto-detect misfires (mk/sl).** Orchestrator
+  rule: configurable default language (`STT_DEFAULT_LANGUAGE`), `auto` only as fallback. Not yet
+  in `stt` (currently per-request `language`, default auto). Real human short-utterance tests: Step 2.
+- Greek TTS default `el_GR-joy-medium` (best round trip); `rapunzelina-low` is never a default.
+  Voices per language: `TTS_VOICE_EN` / `TTS_VOICE_EL`, catalog + checksums in `tts/voices.json`.

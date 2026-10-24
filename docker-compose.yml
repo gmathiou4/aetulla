@@ -278,6 +278,9 @@ services:
       - "127.0.0.1:${TTS_PORT:-8020}:8000"
     environment:
       - TTS_THREADS=${TTS_THREADS:-4}
+      # Voice per language; must be a name from tts/voices.json (empty = catalog default).
+      - TTS_VOICE_EN=${TTS_VOICE_EN:-}
+      - TTS_VOICE_EL=${TTS_VOICE_EL:-}
       - TZ=${TZ:-Europe/Prague}
     volumes:
       - tts_voices:/voices

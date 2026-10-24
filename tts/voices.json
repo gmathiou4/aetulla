@@ -1,18 +1,39 @@
 {
-  "_comment": "Pinned to a rhasspy/piper-voices commit. sha256 of every file is verified after download and on every start; values cross-checked against Hugging Face's own LFS sha256 / git blob sha1.",
+  "_comment": "Catalog of allowed voices, pinned to a rhasspy/piper-voices commit. sha256 of every file is verified after download and on every start; values cross-checked against Hugging Face's own LFS sha256 / git blob sha1. Per-language selection: TTS_VOICE_EN / TTS_VOICE_EL (must be a voice from this catalog whose lang matches). Only the selected voices are downloaded.",
   "revision": "5041a7a49ae5b3a0f30e6837769eb03fdbb231bd",
   "base_url": "https://huggingface.co/rhasspy/piper-voices/resolve",
+  "defaults": {
+    "en": "en_US-lessac-medium",
+    "el": "el_GR-joy-medium"
+  },
   "voices": {
-    "en": {
-      "name": "en_US-lessac-medium",
+    "en_US-lessac-medium": {
+      "lang": "en",
       "dir": "en/en_US/lessac/medium",
       "files": {
         "en_US-lessac-medium.onnx": "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
         "en_US-lessac-medium.onnx.json": "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0"
       }
     },
-    "el": {
-      "name": "el_GR-rapunzelina-low",
+    "el_GR-rapunzelina-medium": {
+      "lang": "el",
+      "dir": "el/el_GR/rapunzelina/medium",
+      "files": {
+        "el_GR-rapunzelina-medium.onnx": "3ca9fb3092215ee92edfc019b43feb0115ff4dfe638eb34474833ab1de840952",
+        "el_GR-rapunzelina-medium.onnx.json": "3a6182ec7c7550e14ef15e5d9badbb18f973a434086ac9658a1b10991fd192f8"
+      }
+    },
+    "el_GR-joy-medium": {
+      "lang": "el",
+      "dir": "el/el_GR/joy/medium",
+      "files": {
+        "el_GR-joy-medium.onnx": "31b1d51dc72dd43a5429b67798e27599f8cdcfce8a80265bc6f50d932bf144bc",
+        "el_GR-joy-medium.onnx.json": "451a8885a0ea72e4432fffe22e65a75bbd2e65f6757273d1a5a9ed8a3419852e"
+      }
+    },
+    "el_GR-rapunzelina-low": {
+      "lang": "el",
+      "not_recommended": "garbles short utterances in TTS->STT round trip; kept only for comparison, never a default",
       "dir": "el/el_GR/rapunzelina/low",
       "files": {
         "el_GR-rapunzelina-low.onnx": "eebb335946c5d868743ff35fbb66b6f00e431b5b9b2e18caf47d3f609a2bf2e1",

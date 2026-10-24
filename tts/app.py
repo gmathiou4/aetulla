@@ -79,8 +79,15 @@ def synth_wav(voice: PiperVoice, text: str, speed: float) -> tuple[bytes, float]
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     t0 = time.perf_counter()
-    for lang, entry in MANIFEST["voices"].items():
-        state["voices"][lang] = (entry["name"], load_voice(entry))
+    for lang in ("en", "el"):
+        name = os.environ.get(f"TTS_VOICE_{lang.upper()}") or MANIFEST["defaults"][lang]
+        entry = MANIFEST["voices"].get(name)
+        if entry is None or entry["lang"] != lang:  # fail fast: only catalogued, checksummed voices of the right language
+            raise RuntimeError(f"TTS_VOICE_{lang.upper()}={name!r} is not a {lang} voice in voices.json "
+                               f"(have: {sorted(k for k, v in MANIFEST['voices'].items() if v['lang'] == lang)})")
+        if entry.get("not_recommended"):
+            print(f"WARNING: voice {name} is not recommended: {entry['not_recommended']}", flush=True)
+        state["voices"][lang] = (name, load_voice(entry))
     state["load_s"] = round(time.perf_counter() - t0, 2)
     t1 = time.perf_counter()
     for lang, (_, v) in state["voices"].items():  # first call per voice pays one-off ONNX/espeak init
