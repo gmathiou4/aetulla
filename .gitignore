@@ -12,3 +12,4 @@ bench-results-*.txt
 .continueignore
 searxng/
 CLAUDE_TASK_*.md
+.env.bak-*

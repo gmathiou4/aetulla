@@ -6,12 +6,18 @@
 # Ollama is intentionally NOT a service here — install/run it natively on the
 # host (see README.md prerequisites) and point OLLAMA_BASE_URL at it via .env.
 #
-# Quick start: cp .env.example .env  →  edit values  →  docker compose up -d
+# The image tags below ARE the tested version set (every tag pinned, never :latest).
+# `bin/aetulla update` moves an install to the next tested set. Plain
+# `docker compose ...` works as usual.
+
+# The one place the Playwright version is written. Server image, web-extractor client
+# and the check against Open WebUI's bundled client all read it (see playwright/).
+x-playwright-version: &playwright_version "1.60.0"
 
 services:
 
   n8n:
-    image: n8nio/n8n:1.74.0
+    image: n8nio/n8n:2.45.5
     container_name: n8n
     restart: unless-stopped
     ports:
@@ -25,7 +31,6 @@ services:
       - N8N_LOG_LEVEL=info
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-      - N8N_RUNNERS_ENABLED=true
       - N8N_GIT_NODE_DISABLE_BARE_REPOS=true
     volumes:
       - n8n_data:/home/node/.n8n
@@ -90,16 +95,22 @@ services:
   #     - SETUID
 
   # ─────────────────────────────────────────────────────────────
-  # Playwright version MUST match the playwright pin in Open WebUI's
-  # own requirements.txt (currently 1.58.0). Never bump this alone —
-  # a mismatch produces "428 Precondition Required" from Open WebUI's
-  # web-loader. Check both images' pins together before bumping either.
+  # Playwright server, built locally (playwright/Dockerfile) so its version is part
+  # of the image, not of a run command. Server, web-extractor's client and the client
+  # bundled in the Open WebUI image must be the SAME version, or the extractor fails
+  # with "428 Precondition Required". The version is x-playwright-version above;
+  # bin/aetulla checks it against the Open WebUI image before touching anything.
   # ─────────────────────────────────────────────────────────────
   playwright:
-    image: mcr.microsoft.com/playwright:v1.58.0-noble
+    build:
+      context: ./playwright
+      dockerfile: Dockerfile
+      args:
+        PLAYWRIGHT_VERSION: *playwright_version
+    image: aetulla-playwright:local
     container_name: playwright
     restart: unless-stopped
-    command: /bin/sh -c "npx -y playwright@1.58.0 run-server --port 3000 --host 0.0.0.0"
+    command: playwright run-server --port 3000 --host 0.0.0.0
     environment:
       - TZ=${TZ:-Europe/Prague}
 
@@ -107,6 +118,8 @@ services:
     build:
       context: ./web-extractor
       dockerfile: Dockerfile
+      args:
+        PLAYWRIGHT_VERSION: *playwright_version
     container_name: web-extractor
     restart: unless-stopped
     environment:
@@ -183,7 +196,7 @@ services:
       start_period: 30s
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:v0.9.6
+    image: ghcr.io/open-webui/open-webui:v0.12.3
     container_name: open-webui
     restart: unless-stopped
     ports:

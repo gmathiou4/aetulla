@@ -10,8 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxml2 libxslt1.1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Playwright client version comes from versions.env (must equal the server).
+ARG PLAYWRIGHT_VERSION
+ENV PLAYWRIGHT_VERSION=${PLAYWRIGHT_VERSION}
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt "playwright==${PLAYWRIGHT_VERSION:?build arg}"
 
 COPY main.py .
 
