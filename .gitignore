@@ -1,5 +1,14 @@
 .env
-*.log
-.superpowers/
 CLAUDE.local.md
+*.log
 __pycache__/
+backups/
+bench-results-*.txt
+*.bak.*
+*:Zone.Identifier
+.superpowers/
+.serena/
+.vscode/
+.continueignore
+searxng/
+CLAUDE_TASK_*.md
