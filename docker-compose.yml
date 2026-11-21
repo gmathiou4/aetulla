@@ -26,8 +26,8 @@ services:
       - N8N_HOST=127.0.0.1
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - GENERIC_TIMEZONE=${TZ:-Europe/Prague}
-      - TZ=${TZ:-Europe/Prague}
+      - GENERIC_TIMEZONE=${TZ:-UTC}
+      - TZ=${TZ:-UTC}
       - N8N_LOG_LEVEL=info
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
@@ -84,7 +84,7 @@ services:
   #     - ./searxng_config:/etc/searxng
   #   environment:
   #     - SEARXNG_BASE_URL=http://localhost:8888/
-  #     - TZ=${TZ:-Europe/Prague}
+  #     - TZ=${TZ:-UTC}
   #   depends_on:
   #     - searxng-redis
   #   cap_drop:
@@ -112,7 +112,7 @@ services:
     restart: unless-stopped
     command: playwright run-server --port 3000 --host 0.0.0.0
     environment:
-      - TZ=${TZ:-Europe/Prague}
+      - TZ=${TZ:-UTC}
 
   web-extractor:
     build:
@@ -126,7 +126,7 @@ services:
       - PLAYWRIGHT_WS=ws://playwright:3000/
       - PAGE_TIMEOUT_MS=30000
       - CONCURRENCY=3
-      - TZ=${TZ:-Europe/Prague}
+      - TZ=${TZ:-UTC}
     depends_on:
       - playwright
 
@@ -147,7 +147,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     environment:
-      - TZ=${TZ:-Europe/Prague}
+      - TZ=${TZ:-UTC}
 
   # ─────────────────────────────────────────────────────────────
   # Mem0 / OpenMemory — three patched files baked into the image
@@ -181,7 +181,7 @@ services:
       # single-file bind mount.
       - DATABASE_URL=sqlite:////data/openmemory.db
       - USER=${MEM0_USER_ID:-default_user}
-      - TZ=${TZ:-Europe/Prague}
+      - TZ=${TZ:-UTC}
     volumes:
       - mem0_data:/data
     depends_on:
@@ -211,13 +211,17 @@ services:
       # (e.g. shared across a redeploy that wipes open-webui_data).
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-}
       - DEFAULT_LOCALE=${DEFAULT_LOCALE:-en}
-      - TZ=${TZ:-Europe/Prague}
+      - TZ=${TZ:-UTC}
       - ENABLE_RAG_WEB_SEARCH=true
       - RAG_WEB_SEARCH_ENGINE=${RAG_WEB_SEARCH_ENGINE:-duckduckgo}
       - RAG_WEB_SEARCH_RESULT_COUNT=5
       - RAG_WEB_SEARCH_CONCURRENT_REQUESTS=3
       - MEM0_BASE_URL=http://mem0:8765
       - MEM0_USER_ID=${MEM0_USER_ID:-default_user}
+      # Skip the startup call to huggingface.co (embedding model revision
+      # check). Default 0 so a FRESH install can still download all-MiniLM-L6-v2
+      # on first boot; set HF_HUB_OFFLINE=1 in .env once the model is cached.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
     volumes:
       - open-webui_data:/app/backend/data
     extra_hosts:
@@ -251,7 +255,7 @@ services:
       - STT_MODEL=${STT_MODEL:-deepdml/faster-whisper-large-v3-turbo-ct2}
       - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-int8_float16}
       - STT_BEAM_SIZE=${STT_BEAM_SIZE:-1}
-      - TZ=${TZ:-Europe/Prague}
+      - TZ=${TZ:-UTC}
     volumes:
       - stt_hf:/cache/hf
       - stt_cuda_cache:/cache/cuda
@@ -294,7 +298,7 @@ services:
       # Voice per language; must be a name from tts/voices.json (empty = catalog default).
       - TTS_VOICE_EN=${TTS_VOICE_EN:-}
       - TTS_VOICE_EL=${TTS_VOICE_EL:-}
-      - TZ=${TZ:-Europe/Prague}
+      - TZ=${TZ:-UTC}
     volumes:
       - tts_voices:/voices
     healthcheck:
