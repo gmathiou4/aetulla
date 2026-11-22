@@ -6,6 +6,7 @@
 !/.env.example
 !/setup.sh
 !/docker-compose.yml
+!/versions.lock
 !/Dockerfile.mem0
 !/memory.py.patched
 !/config.py.patched

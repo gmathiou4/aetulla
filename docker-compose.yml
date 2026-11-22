@@ -6,18 +6,19 @@
 # Ollama is intentionally NOT a service here — install/run it natively on the
 # host (see README.md prerequisites) and point OLLAMA_BASE_URL at it via .env.
 #
-# The image tags below ARE the tested version set (every tag pinned, never :latest).
-# `bin/aetulla update` moves an install to the next tested set. Plain
-# `docker compose ...` works as usual.
+# Every version below is a variable whose DEFAULT is the committed tested set
+# (versions.lock; tests/ asserts the two agree). Never :latest. `bin/aetulla update`
+# passes the chosen lockfile as an extra --env-file (channel latest|locked); plain
+# `docker compose ...` still works and uses the defaults.
 
 # The one place the Playwright version is written. Server image, web-extractor client
 # and the check against Open WebUI's bundled client all read it (see playwright/).
-x-playwright-version: &playwright_version "1.60.0"
+x-playwright-version: &playwright_version "${PLAYWRIGHT_VERSION:-1.60.0}"
 
 services:
 
   n8n:
-    image: n8nio/n8n:2.45.5
+    image: n8nio/n8n:${N8N_VERSION:-2.48.7}
     container_name: n8n
     restart: unless-stopped
     ports:
@@ -43,7 +44,7 @@ services:
   # is unreachable — it just logs a WARN and retries in 20 min.
   # ─────────────────────────────────────────────────────────────
   ollama-keepalive:
-    image: curlimages/curl:8.10.1
+    image: curlimages/curl:${CURL_VERSION:-8.23.0}
     container_name: ollama-keepalive
     restart: unless-stopped
     extra_hosts:
@@ -120,6 +121,7 @@ services:
       dockerfile: Dockerfile
       args:
         PLAYWRIGHT_VERSION: *playwright_version
+        PY_BASE_DIGEST: ${PY_BASE_DIGEST:-sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b}
     container_name: web-extractor
     restart: unless-stopped
     environment:
@@ -138,7 +140,7 @@ services:
   # update QDRANT_HOST).
   # ─────────────────────────────────────────────────────────────
   mem0_store:
-    image: qdrant/qdrant:v1.12.4
+    image: qdrant/qdrant:v${QDRANT_VERSION:-1.20.2}
     container_name: mem0_store
     restart: unless-stopped
     ports:
@@ -159,6 +161,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.mem0
+      args:
+        MEM0_BASE_DIGEST: ${MEM0_BASE_DIGEST:-sha256:b665d382a94fdc18c7bb84a647d4bebdc98d9e7fc1146fc5e559ca7f5f7f9211}
     image: mem0-patched:local
     container_name: mem0
     restart: unless-stopped
@@ -196,7 +200,7 @@ services:
       start_period: 30s
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:v0.12.3
+    image: ghcr.io/open-webui/open-webui:v${OPENWEBUI_VERSION:-0.13.4}
     container_name: open-webui
     restart: unless-stopped
     ports:
@@ -245,6 +249,8 @@ services:
     build:
       context: ./stt
       dockerfile: Dockerfile
+      args:
+        STT_BASE_DIGEST: ${STT_BASE_DIGEST:-sha256:e778509d37d66475120929671500377524f7278478ba08131b07ef3ffcc0dce0}
     image: aetulla-stt:local
     container_name: stt
     profiles: ["voice"]
@@ -286,6 +292,8 @@ services:
     build:
       context: ./tts
       dockerfile: Dockerfile
+      args:
+        PY_BASE_DIGEST: ${PY_BASE_DIGEST:-sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b}
     image: aetulla-tts:local
     container_name: tts
     profiles: ["voice"]

@@ -1,0 +1,15 @@
+# versions.lock — the tested ("known-good") version set. Plain KEY=VALUE, no quotes, no spaces:
+# it is passed to docker compose as an extra --env-file by `aetulla update --channel locked`.
+# Values here MUST equal the ${VAR:-default} fallbacks in docker-compose.yml
+# (tests/lock_defaults_test.sh checks that). Never edit by hand during an update run:
+# `aetulla update` writes the resolved result to ~/.aetulla/resolved.lock, and
+# `aetulla lock --promote` copies a fully healthy one here.
+
+OPENWEBUI_VERSION=0.13.4
+N8N_VERSION=2.48.7
+QDRANT_VERSION=1.20.2
+CURL_VERSION=8.23.0
+PLAYWRIGHT_VERSION=1.60.0
+PY_BASE_DIGEST=sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+MEM0_BASE_DIGEST=sha256:b665d382a94fdc18c7bb84a647d4bebdc98d9e7fc1146fc5e559ca7f5f7f9211
+STT_BASE_DIGEST=sha256:e778509d37d66475120929671500377524f7278478ba08131b07ef3ffcc0dce0

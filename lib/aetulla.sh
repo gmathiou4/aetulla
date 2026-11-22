@@ -44,7 +44,10 @@ die()  { bad "$*"; exit 1; }
 dc() {
     local f args=(-f "$AET_COMPOSE")
     for f in "${AET_OVERRIDES[@]}"; do args+=(-f "$f"); done
-    docker compose --project-directory "$AET_ROOT" "${args[@]}" "$@"
+    # channel latest: the working lockfile is an extra env file (later wins, so it overrides the
+    # ${VAR:-default}s in compose). .env must then be listed explicitly: --env-file turns off auto-load.
+    local envf=(); [[ -n "${AET_LOCKFILE:-}" ]] && envf=(--env-file "$AET_ROOT/.env" --env-file "$AET_LOCKFILE")
+    docker compose --project-directory "$AET_ROOT" "${envf[@]}" "${args[@]}" "$@"
 }
 vol() { echo "${AET_PROJECT}_$1"; }
 # URL for host-side calls to Ollama (containers use host.docker.internal; the host cannot resolve it).
@@ -56,7 +59,7 @@ latest_backup() { find "$AET_BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -name 
 
 # --- version bookkeeping: the compose file is the source of truth --------------
 # Resolved compose model as JSON. Only ever piped into extractors; it contains secrets.
-cfg_json() { dc config --format json 2>/dev/null; }
+cfg_json() { dc --profile voice config --format json 2>/dev/null; }   # --profile voice: list stt/tts too (never starts them)
 compose_image() { # compose_image SERVICE -> image reference the tree wants
     cfg_json | S="$1" python3 -I -c 'import json,os,sys;print(json.load(sys.stdin)["services"][os.environ["S"]].get("image",""))'
 }
@@ -206,23 +209,32 @@ if os.path.isdir("/v/webui"):
                 t.add(p, arcname=d)
                 files[d] = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(p) for f in fs)
 man["_files_bytes"] = files
+# n8n: everything in its volume except the DB, notably `config` (the encryptionKey). Mode 600, names/sizes only.
+man["_n8n_files"] = dbfp.backup_files_except("/v/n8n", "/out/n8n-files.tgz") if os.path.isdir("/v/n8n") else {}
 json.dump(man, open("/out/manifest.json", "w"), indent=1)
 for r, ds, fs in os.walk("/out"):
     for x in ds + fs: os.chown(os.path.join(r, x), *map(int, os.environ["OWNER"].split(":")))
-bad = [n for n, v in man.items() if n != "_files_bytes" and v["integrity"] != "ok"]
+bad = [n for n, v in man.items() if not n.startswith("_") and v["integrity"] != "ok"]
 raise SystemExit(f"integrity_check failed: {bad}" if bad else 0)
 PY
-    # Qdrant: snapshot via API when running; tar of the (small) volume when stopped.
-    local coll q snap
+    # Qdrant is part of EVERY backup: while running, one API snapshot per collection (consistent, no
+    # downtime) plus qdrant.state (collection / exact point count / vector config) so a restore can be
+    # verified; a stopped store is tarred instead. The server-side snapshot is deleted once downloaded.
+    local coll q snap cl
     coll=$(env_get "$AET_ROOT/.env" QDRANT_COLLECTION openmemory_default)
     q="http://127.0.0.1:$(env_get "$AET_ROOT/.env" QDRANT_HTTP_PORT 6333)"
     if is_running mem0_store && curl -fsS -m 5 "$q/readyz" >/dev/null 2>&1; then
-        if snap=$(curl -fsS -m 120 -X POST "$q/collections/$coll/snapshots" | python3 -I -c 'import sys,json;print(json.load(sys.stdin)["result"]["name"])') &&
-           curl -fsS -m 300 -o "$BK/qdrant.snapshot" "$q/collections/$coll/snapshots/$snap"; then
-            echo "snapshot" > "$BK/qdrant.mode"
-        else
-            bad "qdrant snapshot failed"; return 1
-        fi
+        mkdir -p "$BK/qdrant"
+        for cl in $(curl -fsS -m 10 "$q/collections" | python3 -I -c 'import sys,json;print(" ".join(c["name"] for c in json.load(sys.stdin)["result"]["collections"]))'); do
+            if snap=$(curl -fsS -m 300 -X POST "$q/collections/$cl/snapshots" | python3 -I -c 'import sys,json;print(json.load(sys.stdin)["result"]["name"])') &&
+               curl -fsS -m 600 -o "$BK/qdrant/$cl.snapshot" "$q/collections/$cl/snapshots/$snap"; then
+                curl -fsS -m 30 -X DELETE "$q/collections/$cl/snapshots/$snap" >/dev/null 2>&1
+            else
+                bad "qdrant snapshot of collection '$cl' failed"; return 1
+            fi
+        done
+        qd_state > "$BK/qdrant.state" 2>/dev/null
+        echo "snapshot" > "$BK/qdrant.mode"
     elif vol_exists qdrant_data; then
         if docker run --rm --network none --user 0 --entrypoint sh -v "$(vol qdrant_data):/v:ro" -v "$BK:/out" "$helper" \
             -c "tar czf /out/qdrant_data.tgz -C /v . && chown $(id -u):$(id -g) /out/qdrant_data.tgz"; then
@@ -251,9 +263,27 @@ m = json.load(open(sys.argv[1]))
 for k, v in m.items():
     if k == "_files_bytes":
         print("    open-webui files: " + (", ".join(f"{d}={b/1e6:.1f} MB" for d, b in v.items()) or "none"))
+    elif k == "_n8n_files":
+        print("    n8n files (excl. DB, mode 600): " + (", ".join(f"{n} {b/1e3:.1f} kB" for n, b in v.items()) or "none"))
+        if v and "config" not in v:
+            print("    ! n8n volume has no 'config' file: the key then only exists in N8N_ENCRYPTION_KEY (.env)")
     else:
         print(f"    {k}.db  {v['bytes']/1e6:6.1f} MB  logical {v['logical'][:12]}  integrity {v['integrity']}  schema {v['version']}  tables {len(v['tables'])}")
 PY
+    # Qdrant: what is in this backup, with sizes and the counts a restore must reproduce
+    local f c
+    if [[ -d "$BK/qdrant" ]]; then
+        for f in "$BK"/qdrant/*.snapshot; do
+            [[ -e "$f" ]] || continue
+            c=$(basename "$f" .snapshot)
+            printf '    qdrant/%s  %s  %s\n' "$c" "$(fmt_size "$f")" "$(grep "^$c " "$BK/qdrant.state" 2>/dev/null | cut -d' ' -f2- | cut -c1-90)"
+        done
+        [[ -s "$BK/qdrant.state" ]] || warn "qdrant.state is empty (no collections yet?)"
+    elif [[ -f "$BK/qdrant_data.tgz" ]]; then
+        printf '    qdrant volume tar  %s\n' "$(fmt_size "$BK/qdrant_data.tgz")"
+    else
+        warn "NO Qdrant data in this backup (store not running and no qdrant_data volume)"
+    fi
 }
 
 # --- restore (used by rollback) --------------------------------------------
@@ -274,14 +304,15 @@ restore_data() { # restore_data BK  (stack must be stopped). Hard gate: logical 
     vol_exists mem0_data       && mounts+=(-v "$(vol mem0_data):/v/mem0")
     vol_exists n8n_data        && mounts+=(-v "$(vol n8n_data):/v/n8n")
     docker run --rm -i --network none --user 0 --entrypoint python3 "${mounts[@]}" -v "$bk:/bk:ro" \
-        -v "$AET_ROOT/lib/dbfp.py:/lib/dbfp.py:ro" -e PYTHONPATH=/lib "$helper" - <<'PY'
+        -v "$AET_ROOT/lib/dbfp.py:/lib/dbfp.py:ro" -e PYTHONPATH=/lib -e ONLY="${RESTORE_ONLY:-}" "$helper" - <<'PY'
 import os, json, shutil, tarfile
 import dbfp
 man = json.load(open("/bk/manifest.json"))
 dest = {"webui": "/v/webui/webui.db", "mem0": "/v/mem0/openmemory.db", "n8n": "/v/n8n/database.sqlite"}
+only = set(filter(None, os.environ.get("ONLY", "").split(",")))   # RESTORE_ONLY=webui: touch that service's data only
 rc = 0
 for name, v in man.items():
-    if name not in dest: continue
+    if name not in dest or (only and name not in only): continue
     d = dest[name]
     def drop_journals():
         for sfx in ("-wal", "-shm"):                  # stale journals from the failed run
@@ -292,13 +323,15 @@ for name, v in man.items():
     ok, fp = dbfp.check_restored(d, v)
     rc |= (not ok)
     print(f"    {name}.db restored: logical {fp['logical'][:12]} {'== manifest' if ok else '!= MANIFEST ' + v['logical'][:12]}  integrity {fp['integrity']}")
-if os.path.exists("/bk/webui-files.tgz"):
+if os.path.exists("/bk/webui-files.tgz") and (not only or "webui" in only):
     for sub in ("uploads", "vector_db"):             # move aside, extract, drop aside only on success
         p = f"/v/webui/{sub}"
         if os.path.exists(p): os.rename(p, p + ".aside")
     with tarfile.open("/bk/webui-files.tgz") as t: t.extractall("/v/webui")
     for sub in ("uploads", "vector_db"):
         if os.path.exists(f"/v/webui/{sub}.aside"): shutil.rmtree(f"/v/webui/{sub}.aside")
+if os.path.exists("/bk/n8n-files.tgz") and (not only or "n8n" in only):
+    print("    n8n files restored: " + ", ".join(dbfp.restore_files("/bk/n8n-files.tgz", "/v/n8n")))
 raise SystemExit(rc)
 PY
 }
@@ -340,7 +373,14 @@ restore_qdrant() { # restore_qdrant BK  — only needed when the Qdrant image ch
     if [[ "$mode" == tar ]]; then
         docker run --rm --network none --user 0 --entrypoint sh -v "$(vol qdrant_data):/v" -v "$bk:/bk:ro" "$helper" \
             -c 'find /v -mindepth 1 -delete && tar xzf /bk/qdrant_data.tgz -C /v'
-    else
+    elif [[ -d "$bk/qdrant" ]]; then          # one snapshot per collection
+        local f
+        for f in "$bk"/qdrant/*.snapshot; do
+            [[ -e "$f" ]] || continue
+            curl -fsS -m 600 -X POST -F "snapshot=@$f" \
+                "http://127.0.0.1:$(env_get "$AET_ROOT/.env" QDRANT_HTTP_PORT 6333)/collections/$(basename "$f" .snapshot)/snapshots/upload?priority=snapshot" >/dev/null || return 1
+        done
+    else                                      # older backups: the single QDRANT_COLLECTION snapshot
         coll=$(env_get "$bk/meta.env" QDRANT_COLLECTION)
         curl -fsS -m 300 -X POST -F "snapshot=@$bk/qdrant.snapshot" \
             "http://127.0.0.1:$(env_get "$AET_ROOT/.env" QDRANT_HTTP_PORT 6333)/collections/$coll/snapshots/upload?priority=snapshot" >/dev/null
@@ -352,10 +392,19 @@ FAILED=()
 forced() { [[ ",${HEALTH_FORCE_FAIL:-}," == *",$1,"* ]]; }
 
 wait_for() { # wait_for NAME TIMEOUT_S CMD...   -> prints one result line, records failures
-    local name=$1 t=$2 start=$SECONDS; shift 2
+    local name=$1 t=$2 start=$SECONDS out; shift 2
     if forced "$name"; then bad "$name: forced failure (HEALTH_FORCE_FAIL)"; FAILED+=("$name"); return 1; fi
-    until "$@" >/dev/null 2>&1; do
-        if (( SECONDS - start >= t )); then bad "$name: not healthy after ${t}s"; FAILED+=("$name"); return 1; fi
+    # keep the check's own output: when it fails, WHY it failed is the only useful evidence
+    # (checks print counts/names/verdicts only, never row data or secrets)
+    until out=$("$@" 2>&1); do
+        if (( SECONDS - start >= t )); then
+            bad "$name: not healthy after ${t}s"
+            if [[ -n "$out" ]]; then
+                info "last output of the check: $(printf '%s' "$out" | tail -n 4 | cut -c1-220 | tr '\n' '|')"
+                printf '%s: last output of the check:\n%s\n' "$name" "$out" >> "${AET_LOG:-/dev/null}"
+            fi
+            FAILED+=("$name"); return 1
+        fi
         sleep 3
     done
     ok "$name healthy ($((SECONDS - start))s)"
@@ -475,16 +524,102 @@ ollama_advice() {
     else ok "Ollama $cur is current"; fi
 }
 
+# version resolution + the --dry-run report (read-only)
+# shellcheck disable=SC1091  # path is computed from AET_ROOT
+source "$AET_ROOT/lib/resolve.sh"
+# shellcheck disable=SC1091
+source "$AET_ROOT/lib/apply.sh"
+
 # --- commands -----------------------------------------------------------
+# --- effective lock: every start path must resolve what is INSTALLED, not the compose defaults --------
+# dc() only passes a lock when AET_LOCKFILE is set. Commands that do not go through apply_init (up, status,
+# rollback, --dry-run) used to leave it empty, so compose fell back to its ${VAR:-default}s (older than the
+# migrated DBs after an update). They all call this first. resolved.lock if present, else versions.lock.
+use_effective_lock() { AET_LOCKFILE="$(eff_lock)"; }
+
+# High-water mark of versions whose DB migrations/storage format have run (open-webui, n8n, qdrant can not
+# be downgraded in place). Written whenever a lock is established; cmd_up refuses to start anything older.
+# Lives next to resolved.lock (never in the repo). A deliberate rollback restores the DBs too and resets it.
+HW_KEYS=(OPENWEBUI_VERSION N8N_VERSION QDRANT_VERSION)
+hw_file() { echo "$AET_STATE/highwater.lock"; }
+ver_lt() { [[ "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" == "$1" ]]; }   # 1 < 2 ?
+hw_bump() { # hw_bump LOCKFILE [reset]  raise (or, with reset, set) the marks to the versions in LOCKFILE
+    local hw k v old; hw=$(hw_file); mkdir -p "$AET_STATE"; touch "$hw"; chmod 600 "$hw"
+    for k in "${HW_KEYS[@]}"; do
+        v=$(env_get "$1" "$k"); [[ -n "$v" ]] || continue
+        old=$(env_get "$hw" "$k")
+        if [[ "${2:-}" == reset || -z "$old" ]] || ver_lt "$old" "$v"; then
+            { grep -v "^$k=" "$hw"; echo "$k=$v"; } > "$hw.tmp" && chmod 600 "$hw.tmp" && mv "$hw.tmp" "$hw"
+        fi
+    done
+}
+hw_check() { # die if the effective lock is older than a version that already migrated the data
+    local hw k eff old; hw=$(hw_file)
+    [[ -f "$hw" ]] || { [[ -f "$AET_LOCK_RESOLVED" ]] && hw_bump "$AET_LOCK_RESOLVED"; return 0; }   # first run: trust resolved.lock
+    for k in "${HW_KEYS[@]}"; do
+        eff=$(lock_val_eff "$k"); old=$(env_get "$hw" "$k")
+        if [[ -n "$eff" && -n "$old" ]] && ver_lt "$eff" "$old"; then
+            die "refusing to start: $k would be $eff but the data was already migrated by $old (lock: $(eff_lock)). Fix the lock, or 'aetulla rollback' to restore the DBs."
+        fi
+    done
+}
+
+# Start the core services with the effective lock (named services only, never a bare `compose up`).
 cmd_up() {
     preflight_light
+    use_effective_lock
+    hw_check
     dc up -d "${CORE_SERVICES[@]}" && dc ps
+}
+
+# update on a stopped stack (reboot, `docker system prune`): bring it up on the locked versions first and require it
+# healthy, instead of failing later with "pre-state unreadable". No-op when everything already runs.
+ensure_stack_up() {
+    local c down=()
+    for c in "${CORE_SERVICES[@]}"; do is_running "$c" || down+=("$c"); done
+    (( ${#down[@]} )) || return 0
+    warn "stack not fully running (${down[*]}) — starting it on the locked versions first"
+    local keep=${AET_LOCKFILE:-}     # update's working lock must survive: cmd_up points AET_LOCKFILE at the effective lock
+    cmd_up >/dev/null || die "could not start the stack with $(eff_lock)"
+    AET_LOCKFILE=$keep
+    health_all || die "stack started but is not healthy (${FAILED[*]}) — fix that before updating"
+    ok "stack is up and healthy"
+}
+
+# aetulla lock --promote: after a fully healthy run, make the repo's pins equal what is installed
+# (versions.lock + the compose ${VAR:-default}s), so a bare `docker compose up` can never start older versions.
+lock_promote() {
+    preflight_light
+    [[ -f "$AET_LOCK_RESOLVED" ]] || die "no $AET_LOCK_RESOLVED — nothing to promote"
+    use_effective_lock
+    local c k key tag
+    for c in "${CORE_SERVICES[@]}"; do is_running "$c" || die "$c is not running — promote only after a healthy run"; done
+    health_all || die "health check failed (${FAILED[*]}) — not promoting"
+    hc_filter_recall >/dev/null 2>&1; k=$?; [[ $k == 0 || $k == 3 ]] || die "filter-recall failed — not promoting"
+    # what runs must be what the lock says (else we would pin a version nobody tested)
+    for c in "open-webui:OPENWEBUI_VERSION" "n8n:N8N_VERSION" "mem0_store:QDRANT_VERSION" "ollama-keepalive:CURL_VERSION"; do
+        key=${c#*:}; tag=$(tag_of "$(ctr_image "${c%%:*}")")
+        [[ "$tag" == "$(lock_val "$AET_LOCK_RESOLVED" "$key")" ]] || die "${c%%:*} runs $tag but resolved.lock has $key=$(lock_val "$AET_LOCK_RESOLVED" "$key")"
+    done
+    python3 -I "$AET_ROOT/lib/promote.py" "$AET_LOCK_RESOLVED" "$AET_LOCK_COMMITTED" "$AET_COMPOSE" || die "promote failed"
+    hw_bump "$AET_LOCK_RESOLVED"
+    # proof: plain compose (no lock, no env file magic) now resolves the installed images
+    bash "$AET_ROOT/tests/lock_defaults_test.sh" >/dev/null 2>&1 && ok "compose defaults == versions.lock" || warn "tests/lock_defaults_test.sh reports drift"
+    info "review with: git diff versions.lock docker-compose.yml   (commit by name, never git add -A)"
+}
+
+cmd_lock() {
+    case "${1:-}" in
+        --promote) lock_promote ;;
+        *) die "usage: aetulla lock --promote" ;;
+    esac
 }
 
 cmd_status() {
     preflight_light
+    use_effective_lock
     local c want have shown
-    echo "Aetulla status  (pins from docker-compose.yml)"
+    echo "Aetulla status  (pins from $(eff_lock | sed "s|^$HOME|~|"))"
     for c in "${CORE_SERVICES[@]}"; do
         local run="stopped"; is_running "$c" && run="running"
         have=$(ctr_image "$c"); want=$(compose_image "$c")
@@ -504,13 +639,46 @@ cmd_status() {
 
 cmd_rollback() {
     preflight_light
+    use_effective_lock
     local bk=${1:-$(latest_backup)}
     [[ -d "$bk" ]] || die "no backup found (looked in $AET_BACKUP_ROOT)"
-    if do_rollback "$bk" full; then ok "rolled back to $(basename "$bk")"; else die "rollback did not finish cleanly"; fi
+    # the lockfile that matches those images: compose must resolve the SAME versions as the pinned images
+    if [[ -f "$bk/versions.prev.lock" ]]; then AET_LOCKFILE="$bk/versions.prev.lock"; fi
+    if do_rollback "$bk" full; then
+        if [[ -f "$bk/versions.prev.lock" ]]; then
+            if [[ "$(basename "$(cat "$bk/versions.prev.lock.src" 2>/dev/null)")" == resolved.lock ]]; then cp "$bk/versions.prev.lock" "$AET_LOCK_RESOLVED"; else rm -f "$AET_LOCK_RESOLVED"; fi
+        fi
+        hw_bump "$(eff_lock)" reset      # the DBs were restored too: the high-water mark follows the restored lock
+        ok "rolled back to $(basename "$bk")"
+    else die "rollback did not finish cleanly"; fi
 }
 
 cmd_update() {
-    echo "Aetulla update"
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --channel)      AET_CHANNEL=${2:-}; shift 2 ;;
+            --channel=*)    AET_CHANNEL=${1#*=}; shift ;;
+            --dry-run)      AET_DRYRUN=1; shift ;;
+            --with-ollama)  AET_WITH_OLLAMA=1; shift ;;
+            --no-models)    AET_MODELS=0; shift ;;
+            --yes)          AET_YES=1; shift ;;
+            --yes-big)      AET_YES_BIG=1; shift ;;
+            --qdrant-to)    AET_QDRANT_TO=${2:-}; shift 2 ;;
+            --qdrant-to=*)  AET_QDRANT_TO=${1#*=}; shift ;;
+            --only)         AET_ONLY=${2:-}; shift 2 ;;
+            --only=*)       AET_ONLY=${1#*=}; shift ;;
+            *) die "unknown option for update: $1" ;;
+        esac
+    done
+    [[ $AET_CHANNEL == latest || $AET_CHANNEL == locked ]] || die "--channel must be 'latest' or 'locked'"
+    use_effective_lock     # --dry-run and the pins path must compare against what is installed, not compose defaults
+    if (( AET_DRYRUN )); then update_dry_run; return; fi
+    if [[ $AET_CHANNEL == latest ]]; then update_apply_latest; else update_apply_pins; fi
+}
+
+# Legacy apply path = channel locked: install exactly what docker-compose.yml / versions.lock pin.
+update_apply_pins() {
+    echo "Aetulla update (channel: locked)"
     preflight_light
     if ! net_ok; then ok "offline — update check skipped. Nothing was changed."; return 0; fi
     preflight

@@ -1,7 +1,13 @@
 # Base pinned to the python:3.12-slim digest (resolved 2026-07-01):
-#   python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf
+#   python:3.12-slim (digest: PY_BASE_DIGEST in docker-compose.yml / versions.lock)
 # Re-resolve and bump deliberately — never track a floating tag in a shipped Kit.
-FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf
+# PY_BASE_DIGEST is supplied by docker-compose.yml (build.args); no default here on purpose.
+ARG PY_BASE_DIGEST
+FROM python:3.12-slim@${PY_BASE_DIGEST}
+# Redeclared after FROM so the label can use it. `aetulla update` reads this label to find
+# dependents that were built on an older shared base (web-extractor + tts share PY_BASE_DIGEST).
+ARG PY_BASE_DIGEST
+LABEL aetulla.base-digest="${PY_BASE_DIGEST}"
 
 WORKDIR /app
 

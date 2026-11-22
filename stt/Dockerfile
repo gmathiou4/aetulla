@@ -2,7 +2,9 @@
 # Base: CUDA 12.8 is the first release with Blackwell (sm_120) support; pinned to digest.
 # The CTranslate2 wheel ships no native sm_120 kernels, so the first run JIT-compiles PTX
 # (~15 s). CUDA_CACHE_PATH points at a named volume so that cost is paid once, not per container.
-FROM nvidia/cuda:12.8.0-base-ubuntu24.04@sha256:e778509d37d66475120929671500377524f7278478ba08131b07ef3ffcc0dce0
+# STT_BASE_DIGEST is supplied by docker-compose.yml (build.args); no default here on purpose.
+ARG STT_BASE_DIGEST
+FROM nvidia/cuda:12.8.0-base-ubuntu24.04@${STT_BASE_DIGEST}
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-venv \
