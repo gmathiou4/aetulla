@@ -363,11 +363,17 @@ apply_ollama_binary() { # apply_ollama_binary OLD NEW
 # --- models -----------------------------------------------------------------------------------
 # Tag refresh = blanket yes; > 10 GB asks per model; qwen3.5:35b-a3b goes last. Before pulling a model
 # we `ollama cp` it to aetulla-prev/<name> (shares blobs, costs no disk until the new layers land) so a
-# bad new tag can be undone by hand; those copies are pruned at the start of the NEXT run.
+# bad new tag can be undone by hand; those copies are pruned at the start of the next run that ACTUALLY
+# pulls models (a run with only container/derived changes must leave them alone — it used to wipe them).
 prev_name() { echo "aetulla-prev/$(echo "$1" | tr '/:' '__')"; }
-apply_models() {
-    local todo=$AET_MODELS_TODO name rsize st line last="qwen3.5:35b-a3b" old
+prune_prev_models() { # prune_prev_models TODO_FILE : remove old rollback copies only if this run pulls >= 1 model
+    local old
+    grep -v '^DERIVED|' "$1" | grep -q . || return 0      # nothing to pull: keep the previous run's copies
     for old in $(ollama list | awk 'NR>1 && $1 ~ /^aetulla-prev\//{print $1}'); do ollama rm "$old" >/dev/null 2>&1; done
+}
+apply_models() {
+    local todo=$AET_MODELS_TODO name rsize st line last="qwen3.5:35b-a3b"
+    prune_prev_models "$todo"
     while IFS='|' read -r name rsize _; do
         [[ -n "$name" ]] || continue
         if (( rsize > AET_BIG_MODEL_BYTES )) && ! confirm "pull $name (<= $(fmt_gb "$rsize"))?" big; then
